@@ -7,6 +7,7 @@ import { supabase } from '../../../../lib/supabaseClient';
 import { useAdminGuard } from '../../../../lib/useAdminGuard';
 import Sidebar from '../../../../components/Sidebar';
 import MitGradeEditForm from '../../../../components/MitGradeEditForm';
+import PageLoader from '../../../../components/PageLoader';
 
 export default function MitStudentDetail() {
   const session = useAdminGuard();
@@ -27,13 +28,7 @@ export default function MitStudentDetail() {
 
   useEffect(() => { if (session) load(session.access_token); }, [session]);
 
-  if (session === undefined || loading) return (
-    <div className="admin-shell">
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 1 }}>
-        <p className="muted">Loading…</p>
-      </div>
-    </div>
-  );
+  if (session === undefined || loading) return <PageLoader />;
 
   if (error) return (
     <div className="admin-shell">

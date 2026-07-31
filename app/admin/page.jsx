@@ -9,6 +9,8 @@ import { useAdminGuard } from '../../lib/useAdminGuard';
 import Sidebar from '../../components/Sidebar';
 import StatCard from '../../components/StatCard';
 import CreateBatchForm from '../../components/CreateBatchForm';
+import QRCodeModal from '../../components/QRCodeModal';
+import { CleanGrowthGraph, CleanDemographicsGraph } from '../../components/AnalyticsCharts';
 
 const PROG_STYLES = {
   MEMBERSHIP:   { label: 'MEMBERSHIP', color: '#3b82f6', bg: 'rgba(59,130,246,0.12)' },
@@ -22,6 +24,7 @@ export default function AdminDashboard() {
   const [batches, setBatches] = useState([]);
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [activeQrBatch, setActiveQrBatch] = useState(null);
 
   // Batch Filter, Search & Pagination
   const [progFilter, setProgFilter] = useState('ALL'); // 'ALL' | 'MEMBERSHIP' | 'MIT' | 'PROCLAIMERS'
@@ -43,18 +46,22 @@ export default function AdminDashboard() {
 
   const [baseUrl, setBaseUrl] = useState('');
   const [copied, setCopied] = useState(null);
+  const [deletingBatch, setDeletingBatch] = useState(null); // id of batch being deleted
 
   useEffect(() => {
-    const envUrl = process.env.NEXT_PUBLIC_BASE_URL;
-    if (envUrl) {
-      setBaseUrl(envUrl.replace(/\/$/, ''));
-    } else {
+    if (typeof window !== 'undefined' && window.location.origin) {
       setBaseUrl(window.location.origin);
+    } else if (process.env.NEXT_PUBLIC_BASE_URL) {
+      setBaseUrl(process.env.NEXT_PUBLIC_BASE_URL.replace(/\/$/, ''));
     }
   }, []);
 
-  async function loadData(token) {
+  async function loadData(customToken) {
     setLoading(true);
+    const { data: freshData } = await supabase.auth.getSession();
+    const token = customToken || freshData?.session?.access_token || session?.access_token;
+    if (!token) { setLoading(false); return; }
+
     const [batchRes, statsRes] = await Promise.all([
       fetch('/api/batches', { headers: { Authorization: `Bearer ${token}` } }),
       fetch('/api/admin/stats', { headers: { Authorization: `Bearer ${token}` } }),
@@ -66,12 +73,12 @@ export default function AdminDashboard() {
     setLoading(false);
   }
 
-  useEffect(() => { if (session) loadData(session.access_token); }, [session]);
+  useEffect(() => { if (session) loadData(session?.access_token); }, [session]);
 
-  // Reset page to 1 when filter or search changes
+  // Reset page to 1 when search changes
   useEffect(() => {
     setCurrentPage(1);
-  }, [progFilter, batchSearch]);
+  }, [batchSearch]);
 
   // Global Student Search logic
   useEffect(() => {
@@ -96,20 +103,22 @@ export default function AdminDashboard() {
     e.preventDefault();
     setError('');
     if (!batchCode || !batchName) { setError('Enter both a batch code and a batch name.'); return; }
+
+    const { data: freshData } = await supabase.auth.getSession();
+    const token = freshData?.session?.access_token || session?.access_token;
+
     const res = await fetch('/api/batches', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify({ batch_code: batchCode, batch_name: batchName, programme_type: programmeType }),
     });
     const json = await res.json();
-    if (!res.ok) { setError(json.error); return; }
+    if (!res.ok) { setError(json.error || 'Failed to create batch.'); return; }
     setBatchCode(''); setBatchName(''); setProgrammeType('MEMBERSHIP'); setShowForm(false);
-    loadData(session.access_token);
+    loadData(token);
   }
 
   function getRegPath(batch) {
-    if (batch.programme_type === 'PROCLAIMERS') return `/register-proclaimers/${batch.reg_token}`;
-    if (batch.programme_type === 'MIT') return `/register-mit/${batch.reg_token}`;
     return `/register/${batch.reg_token}`;
   }
 
@@ -125,8 +134,11 @@ export default function AdminDashboard() {
   }
 
   async function downloadTemplate() {
+    const { data: freshData } = await supabase.auth.getSession();
+    const token = freshData?.session?.access_token || session?.access_token;
+
     const res = await fetch('/api/admin/template', {
-      headers: { Authorization: `Bearer ${session.access_token}` },
+      headers: { Authorization: `Bearer ${token}` },
     });
     if (!res.ok) { alert('Template download failed.'); return; }
     const blob = await res.blob();
@@ -136,6 +148,26 @@ export default function AdminDashboard() {
     a.download = 'ATS_Master_Migration_Template.xlsx';
     a.click();
     URL.revokeObjectURL(url);
+  }
+
+  async function deleteBatch(batch) {
+    if (!confirm(`Delete "${batch.batch_name}"? This cannot be undone.`)) return;
+    setDeletingBatch(batch.id);
+
+    const { data: freshData } = await supabase.auth.getSession();
+    const token = freshData?.session?.access_token || session?.access_token;
+
+    const res = await fetch(`/api/batches/${batch.id}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    setDeletingBatch(null);
+    if (res.ok) {
+      loadData(token);
+    } else {
+      const json = await res.json();
+      alert(`Delete failed: ${json.error}`);
+    }
   }
 
   if (session === undefined) {
@@ -148,16 +180,14 @@ export default function AdminDashboard() {
     );
   }
 
-  // Filter batches by programme and search query
+  // Filter batches by search query
   const batchesList = Array.isArray(batches) ? batches : [];
   const filteredBatches = batchesList.filter((b) => {
-    if (progFilter !== 'ALL' && b.programme_type !== progFilter) return false;
     if (batchSearch.trim()) {
       const q = batchSearch.trim().toLowerCase();
       const codeMatch = (b.batch_code || '').toLowerCase().includes(q);
       const nameMatch = (b.batch_name || '').toLowerCase().includes(q);
-      const typeMatch = (b.programme_type || '').toLowerCase().includes(q);
-      return codeMatch || nameMatch || typeMatch;
+      return codeMatch || nameMatch;
     }
     return true;
   });
@@ -241,27 +271,82 @@ export default function AdminDashboard() {
 
         <div className="admin-content">
 
-          {/* Stats Grid */}
+          {/* ── GRAPH ANALYTICS DASHBOARD ── */}
           {stats && (
-            <div className="stats-grid">
-              <StatCard icon="fa-users" label="Total Students" value={stats.totalStudents} sub="Across all batches" colorClass="blue" />
-              <StatCard icon="fa-layer-group" label="Total Batches" value={stats.totalBatches} colorClass="gold" />
-              <StatCard icon="fa-circle-check" label="Active Batches" value={stats.activeBatches} colorClass="green" />
-              <StatCard
-                icon="fa-clock"
-                label="Latest Registration"
-                value={stats.recentStudent ? `${stats.recentStudent.first_name} ${stats.recentStudent.surname}` : '—'}
-                sub={stats.recentStudent ? new Date(stats.recentStudent.created_at).toLocaleDateString() : 'No registrations yet'}
-                colorClass="purple"
-              />
+            <div style={{ marginBottom: 28 }}>
+              {/* 4 Premium Stat Cards */}
+              <div className="stats-grid" style={{ marginBottom: 20 }}>
+                <StatCard
+                  icon="fa-users"
+                  label="Total Enrolled"
+                  value={stats.totalStudents}
+                  sub={`Mem: ${stats.membershipTotal} · MIT: ${stats.mitTotal} · Proc: ${stats.proclaimersTotal}`}
+                  colorClass="blue"
+                />
+                <StatCard
+                  icon="fa-venus-mars"
+                  label="Gender Ratio"
+                  value={`${stats.malePercent}% M / ${stats.femalePercent}% F`}
+                  sub={`Male: ${stats.maleCount} · Female: ${stats.femaleCount}`}
+                  colorClass="purple"
+                />
+                <StatCard
+                  icon="fa-star"
+                  label="First Timers"
+                  value={stats.firstTimerCount}
+                  sub={`${stats.firstTimerPercent}% of Membership Enrolment`}
+                  colorClass="gold"
+                />
+                <StatCard
+                  icon="fa-layer-group"
+                  label="Batches Overview"
+                  value={`${stats.activeBatches} Active`}
+                  sub={`${stats.totalBatches} Total Batches Registered`}
+                  colorClass="green"
+                />
+              </div>
+
+              {/* Clean Multi-Color Analytics Trend Graphs */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(380px, 1fr))', gap: 20 }}>
+                
+                {/* Left Panel: Clean Batch Growth Trend Lines */}
+                <div className="card" style={{ padding: 22 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                    <h3 style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--navy)', margin: 0 }}>
+                      📈 Batch Student Growth
+                    </h3>
+                    <span className="badge badge-gold" style={{ fontSize: '0.72rem' }}>Trends</span>
+                  </div>
+
+                  <CleanGrowthGraph data={stats.batchDistribution || []} />
+                </div>
+
+                {/* Right Panel: Clean Demographics & First Timers */}
+                <div className="card" style={{ padding: 22 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                    <h3 style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--navy)', margin: 0 }}>
+                      📊 Student Demographics
+                    </h3>
+                    <span className="badge badge-gold" style={{ fontSize: '0.72rem' }}>Membership Demographics</span>
+                  </div>
+
+                  <CleanDemographicsGraph
+                    maleCount={stats.maleCount}
+                    femaleCount={stats.femaleCount}
+                    firstTimerCount={stats.firstTimerCount}
+                    membershipTotal={stats.membershipTotal}
+                  />
+                </div>
+
+              </div>
             </div>
           )}
 
           {/* ── BATCH SECTION CONTROLS ── */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 12 }}>
             <div>
-              <h2 style={{ fontSize: '1.15rem', color: 'var(--navy)', margin: 0 }}>Programme Batches</h2>
-              <p className="muted text-sm" style={{ marginTop: 2 }}>Filter by programme type or search batches</p>
+              <h2 style={{ fontSize: '1.15rem', color: 'var(--navy)', margin: 0 }}>Batches</h2>
+              <p className="muted text-sm" style={{ marginTop: 2 }}>Search and manage all batches</p>
             </div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               <button className="btn btn-outline" onClick={downloadTemplate} title="Download master migration template Excel sheet">
@@ -292,41 +377,12 @@ export default function AdminDashboard() {
             </div>
           )}
 
-          {/* ── FILTER & SEARCH TOOLBAR ── */}
+          {/* ── SEARCH TOOLBAR ── */}
           <div style={{
-            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+            display: 'flex', justifyContent: 'flex-end', alignItems: 'center',
             gap: 12, marginBottom: 20, flexWrap: 'wrap', background: '#fff',
             padding: 12, borderRadius: 12, border: '1px solid var(--border)'
           }}>
-            {/* Programme Filter Tabs */}
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-              {[
-                { id: 'ALL', icon: 'fa-border-all', label: 'All Programmes' },
-                { id: 'MEMBERSHIP', icon: 'fa-graduation-cap', label: 'Membership' },
-                { id: 'MIT', icon: 'fa-book-open', label: 'MIT' },
-                { id: 'PROCLAIMERS', icon: 'fa-bullhorn', label: 'Proclaimers' },
-              ].map((tab) => {
-                const isSelected = progFilter === tab.id;
-                return (
-                  <button
-                    key={tab.id}
-                    onClick={() => setProgFilter(tab.id)}
-                    style={{
-                      padding: '7px 14px', borderRadius: 8, fontSize: '0.82rem', fontWeight: isSelected ? 700 : 500,
-                      border: isSelected ? '1.5px solid var(--gold)' : '1px solid var(--border)',
-                      background: isSelected ? 'rgba(212,175,55,0.12)' : 'transparent',
-                      color: isSelected ? 'var(--navy)' : 'var(--muted)', cursor: 'pointer',
-                      transition: 'all 0.15s',
-                      display: 'inline-flex', alignItems: 'center', gap: 6
-                    }}
-                  >
-                    <i className={`fa-solid ${tab.icon}`}></i>
-                    <span>{tab.label}</span>
-                  </button>
-                );
-              })}
-            </div>
-
             {/* Batch Search Input */}
             <div className="search-wrap" style={{ maxWidth: 280 }}>
               <i className="fa-solid fa-magnifying-glass search-icon"></i>
@@ -350,8 +406,8 @@ export default function AdminDashboard() {
                 <i className="fa-solid fa-folder-open"></i>
               </div>
               <p className="muted">
-                {batchSearch || progFilter !== 'ALL'
-                  ? 'No batches match your filter or search criteria.'
+                {batchSearch
+                  ? 'No batches match your search.'
                   : 'No batches yet. Create your first batch to get started.'}
               </p>
             </div>
@@ -359,47 +415,71 @@ export default function AdminDashboard() {
             <>
               <div className="batch-grid">
                 {paginatedBatches.map((b) => {
-                  const prog = PROG_STYLES[b.programme_type] || PROG_STYLES.MEMBERSHIP;
                   const regPath = getRegPath(b);
-                  const count = b.programme_type === 'PROCLAIMERS'
-                    ? (b.proclaimers_registrations?.[0]?.count ?? 0)
-                    : b.programme_type === 'MIT'
-                    ? (b.mit_registrations?.[0]?.count ?? 0)
-                    : (b.students?.[0]?.count ?? 0);
+                  const count =
+                    (b.students?.[0]?.count ?? 0) +
+                    (b.mit_registrations?.[0]?.count ?? 0) +
+                    (b.proclaimers_registrations?.[0]?.count ?? 0);
 
                   return (
-                    <div key={b.id} className="batch-card">
-                      <div className="batch-card-header">
-                        <a href={`/admin/batch/${b.id}`} className="batch-card-name" style={{ textDecoration: 'none' }}>
-                          {b.batch_name}
-                        </a>
-                        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                          <span style={{
-                            background: prog.bg, color: prog.color,
-                            border: `1px solid ${prog.color}44`,
-                            borderRadius: 5, padding: '2px 8px',
-                            fontSize: '0.68rem', fontWeight: 700, letterSpacing: 0.5,
-                          }}>{prog.label}</span>
-                          <span className="batch-card-code">#{b.batch_code}</span>
+                    <div key={b.id} className="batch-card" style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 12 }}>
+                      {/* Card Header: Batch Name, Code Badge & Delete Icon */}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
+                        <div>
+                          <a href={`/admin/batch/${b.id}`} className="batch-card-name" style={{ textDecoration: 'none', fontSize: '1.05rem', fontWeight: 700, color: 'var(--navy)' }}>
+                            {b.batch_name}
+                          </a>
+                          <div style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                            <span className="batch-card-code">#{b.batch_code}</span>
+                            {b.programme_type && (
+                              <span className="badge badge-gold" style={{ fontSize: '0.68rem', padding: '2px 8px' }}>
+                                {b.programme_type}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Top-Right Delete Button */}
+                        <button
+                          onClick={() => deleteBatch(b)}
+                          disabled={deletingBatch === b.id}
+                          title="Delete batch"
+                          style={{
+                            background: '#fee2e2', color: '#dc2626',
+                            border: '1px solid #fca5a5', borderRadius: 8,
+                            width: 32, height: 32, display: 'flex',
+                            alignItems: 'center', justifyContent: 'center',
+                            cursor: deletingBatch === b.id ? 'not-allowed' : 'pointer',
+                            fontSize: '0.85rem', flexShrink: 0,
+                          }}
+                        >
+                          {deletingBatch === b.id ? <i className="fa-solid fa-spinner fa-spin" /> : <i className="fa-solid fa-trash" />}
+                        </button>
+                      </div>
+
+                      {/* Student Count & Path Container */}
+                      <div style={{ background: 'var(--paper)', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border)' }}>
+                        <div className="batch-card-count" style={{ fontSize: '0.84rem', color: 'var(--muted)' }}>
+                          <strong style={{ color: 'var(--navy)', fontSize: '0.98rem' }}>{count}</strong> student{count !== 1 ? 's' : ''} registered
+                        </div>
+                        <div style={{ fontSize: '0.74rem', color: 'var(--muted)', marginTop: 4, wordBreak: 'break-all', fontFamily: 'monospace' }}>
+                          {regPath}
                         </div>
                       </div>
-                      <div className="batch-card-count">
-                        <strong>{count}</strong> student{count !== 1 ? 's' : ''} registered
-                      </div>
-                      <div style={{ fontSize: '0.75rem', color: 'var(--muted)', wordBreak: 'break-all' }}>
-                        {regPath}
-                      </div>
-                      <div className="batch-card-actions">
-                        <a href={`/admin/batch/${b.id}`} className="btn btn-primary btn-sm">View Batch</a>
-                        <button className="btn btn-outline btn-sm" onClick={() => copyLink(b)}>
+
+                      {/* Action Buttons Row */}
+                      <div style={{ display: 'flex', gap: 8, marginTop: 'auto', flexWrap: 'wrap' }}>
+                        <a href={`/admin/batch/${b.id}`} className="btn btn-primary btn-sm" style={{ flex: 1, minWidth: 95, textAlign: 'center', justifyContent: 'center' }}>
+                          View Batch
+                        </a>
+                        <button className="btn btn-outline btn-sm" onClick={() => setActiveQrBatch(b)} style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                          <i className="fa-solid fa-qrcode"></i> QR Code
+                        </button>
+                        <button className="btn btn-outline btn-sm" onClick={() => copyLink(b)} style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
                           {copied === b.id ? (
-                            <>
-                              <i className="fa-solid fa-check"></i> Copied!
-                            </>
+                            <><i className="fa-solid fa-check"></i> Copied!</>
                           ) : (
-                            <>
-                              <i className="fa-solid fa-copy"></i> Copy Link
-                            </>
+                            <><i className="fa-solid fa-copy"></i> Copy Link</>
                           )}
                         </button>
                       </div>
@@ -407,6 +487,15 @@ export default function AdminDashboard() {
                   );
                 })}
               </div>
+
+              {/* QR Code Modal */}
+              {activeQrBatch && (
+                <QRCodeModal
+                  batch={activeQrBatch}
+                  baseUrl={baseUrl}
+                  onClose={() => setActiveQrBatch(null)}
+                />
+              )}
 
               {/* ── PAGINATION CONTROLS (3 items per page) ── */}
               {totalPages > 1 && (

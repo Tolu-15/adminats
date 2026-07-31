@@ -5,42 +5,35 @@ import { supabase } from '../lib/supabaseClient';
 import { useRouter } from 'next/navigation';
 
 const SCORE_FIELDS = [
-  { key: 'midterm_test',      label: 'Midterm Test' },
-  { key: 'interactions',      label: 'Interactions' },
-  { key: 'bible_study',       label: 'Bible Study' },
-  { key: 'assignment',        label: 'Assignment' },
-  { key: 'attendance',        label: 'Attendance' },
-  { key: 'cth',               label: 'CTH' },
-  { key: 'community_service', label: 'Community Service' },
-  { key: 'evangelism',        label: 'Evangelism' },
-  { key: 'presentation',      label: 'Presentation' },
-  { key: 'final_exam',        label: 'Final Exam' },
-  { key: 'final_grades',      label: 'Final Grades' },
+  { key: 'cih',                label: 'CIH' },
+  { key: 'attendance',         label: 'Attendance' },
+  { key: 'assessment',         label: 'Continuous Assessment' },
+  { key: 'presentation',       label: 'Presentation' },
+  { key: 'project',            label: 'Project' },
+  { key: 'seminar_attendance', label: 'Seminar Attendance' },
+  { key: 'final_grades',       label: 'Final Grades' },
 ];
 
 const EXTRA_FIELDS = [
-  { key: 'class',                   label: 'Class',                   type: 'text' },
-  { key: 'trainer',                 label: 'Trainer',                 type: 'text' },
-  { key: 'status',                  label: 'Status',                  type: 'select', options: ['', 'PASSED', 'FAILED'] },
-  { key: 'department',              label: 'Department',              type: 'text' },
-  { key: 'department_confirmation', label: 'Dept Confirmation',       type: 'select', options: ['', 'YES', 'NO'] },
-  { key: 'first_timer',             label: 'First Timer',             type: 'select', options: ['', 'YES', 'NO'] },
-  { key: 'first_timer_date',        label: 'First Timer Date',        type: 'date' },
-  { key: 'comments',                label: 'Comments',                type: 'textarea' },
+  { key: 'class',                 label: 'Class',                 type: 'text' },
+  { key: 'trainer',               label: 'Trainer',               type: 'text' },
+  { key: 'department',            label: 'Department',            type: 'text' },
+  { key: 'mountain_of_influence', label: 'Mountain of Influence', type: 'text' },
+  { key: 'status',                label: 'Status (Released)',     type: 'select', options: ['', 'PASSED', 'FAILED'] },
+  { key: 'comments',              label: 'Comments',              type: 'textarea' },
 ];
 
 const NUM_KEYS = new Set(SCORE_FIELDS.map((f) => f.key));
 
-export default function MitGradeEditForm({ registrationId, initialGrades = {}, session, onSaved }) {
+export default function ProclaimersGradeEditForm({ registrationId, initialGrades = {}, session, onSaved }) {
   const router = useRouter();
 
   const [grades, setGrades] = useState(initialGrades);
   const [form, setForm] = useState(initialGrades);
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [saveMsg, setSaveMsg] = useState(null); // { type, text }
+  const [saveMsg, setSaveMsg] = useState(null);
 
-  // Sync when initialGrades prop updates
   useEffect(() => {
     setGrades(initialGrades);
     setForm(initialGrades);
@@ -65,14 +58,13 @@ export default function MitGradeEditForm({ registrationId, initialGrades = {}, s
     const { data: { session: sess } } = await supabase.auth.getSession();
     const token = sess?.access_token || session?.access_token;
 
-    // Build payload — convert numeric strings to numbers
     const payload = { ...form };
     for (const key of NUM_KEYS) {
       payload[key] = payload[key] !== '' && payload[key] != null ? Number(payload[key]) : null;
     }
 
     try {
-      const res = await fetch(`/api/mit/registrations/${registrationId}/grades`, {
+      const res = await fetch(`/api/proclaimers/registrations/${registrationId}/grades`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify(payload),
@@ -80,14 +72,13 @@ export default function MitGradeEditForm({ registrationId, initialGrades = {}, s
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Save failed');
 
-      // Update local state with returned grade — no full reload needed
       const saved = json.grades || payload;
       setGrades(saved);
       setForm(saved);
       setEditing(false);
       setSaveMsg({ type: 'success', text: 'Grades saved.' });
       setTimeout(() => setSaveMsg(null), 3000);
-      router.refresh(); // invalidate cached batch page
+      router.refresh();
       onSaved?.();
     } catch (err) {
       setSaveMsg({ type: 'error', text: err.message });
@@ -100,11 +91,10 @@ export default function MitGradeEditForm({ registrationId, initialGrades = {}, s
 
   return (
     <div className="card">
-      {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
         <div>
-          <h2 style={{ fontSize: '1rem', margin: 0, color: 'var(--navy)' }}>MIT Class Grades</h2>
-          <p className="muted text-sm" style={{ marginTop: 2 }}>Edit scores and additional details</p>
+          <h2 style={{ fontSize: '1rem', margin: 0, color: 'var(--navy)' }}>📣 Proclaimers Class Grades</h2>
+          <p className="muted text-sm" style={{ marginTop: 2 }}>Edit Proclaimers scores and assessment details</p>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           {saveMsg && (
@@ -125,7 +115,6 @@ export default function MitGradeEditForm({ registrationId, initialGrades = {}, s
         </div>
       </div>
 
-      {/* Score grid */}
       <div className="grades-grid" style={{ marginBottom: 20 }}>
         {SCORE_FIELDS.map(({ key, label }) => (
           <div className="grade-box" key={key}>
@@ -151,7 +140,6 @@ export default function MitGradeEditForm({ registrationId, initialGrades = {}, s
         ))}
       </div>
 
-      {/* Extra fields */}
       <div className="section-title">Additional Details</div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 12 }}>
         {EXTRA_FIELDS.map(({ key, label, type, options }) => (

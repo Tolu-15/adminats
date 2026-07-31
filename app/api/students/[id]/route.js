@@ -10,20 +10,14 @@ async function requireAdmin(request) {
   return data.user;
 }
 
-/**
- * GET /api/students/[id]
- * Returns full unified profile:
- * - Student biodata
- * - Membership batch & student_grades
- * - MIT registrations & mit_grades
- */
+
 export async function GET(request, { params }) {
   const user = await requireAdmin(request);
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const { id } = params;
 
-  // 1. Fetch student + membership batch
+
   const { data: student, error: sErr } = await supabaseAdmin
     .from('students')
     .select('*, batch:batches(*)')
@@ -32,24 +26,60 @@ export async function GET(request, { params }) {
 
   if (sErr || !student) return NextResponse.json({ error: 'Student not found.' }, { status: 404 });
 
-  // 2. Fetch membership grades
+
   const { data: membershipGrades } = await supabaseAdmin
     .from('student_grades')
     .select('*')
     .eq('student_id', id)
     .maybeSingle();
 
-  // 3. Fetch MIT registration + grades + MIT batch info
+
   const { data: mitReg } = await supabaseAdmin
     .from('mit_registrations')
-    .select('*, batch:batches(*), mit_grades(*)')
+    .select('*, batch:batches(*)')
     .eq('membership_student_id', id)
     .maybeSingle();
+
+  let mitGradesData = null;
+  if (mitReg) {
+    const { data: mg } = await supabaseAdmin
+      .from('mit_grades')
+      .select('*')
+      .eq('mit_registration_id', mitReg.id)
+      .maybeSingle();
+    mitGradesData = mg;
+  }
+
+  const mitRegistration = mitReg
+    ? { ...mitReg, mit_grades: mitGradesData ? [mitGradesData] : [] }
+    : null;
+
+  // 4. Fetch Proclaimers registration + Proclaimers batch info
+  const { data: procReg } = await supabaseAdmin
+    .from('proclaimers_registrations')
+    .select('*, batch:batches(*)')
+    .eq('membership_student_id', id)
+    .maybeSingle();
+
+  let procGradesData = null;
+  if (procReg) {
+    const { data: pg } = await supabaseAdmin
+      .from('proclaimers_grades')
+      .select('*')
+      .eq('proclaimers_registration_id', procReg.id)
+      .maybeSingle();
+    procGradesData = pg;
+  }
+
+  const proclaimersRegistration = procReg
+    ? { ...procReg, proclaimers_grades: procGradesData ? [procGradesData] : [] }
+    : null;
 
   return NextResponse.json({
     student,
     membershipGrades: membershipGrades || null,
-    mitRegistration: mitReg || null,
+    mitRegistration,
+    proclaimersRegistration,
   });
 }
 

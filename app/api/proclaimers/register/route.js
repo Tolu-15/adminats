@@ -34,7 +34,6 @@ export async function POST(request) {
 
   if (batchErr || !batch) return NextResponse.json({ error: 'Batch not found.' }, { status: 404 });
   if (!batch.is_active) return NextResponse.json({ error: 'This batch is no longer active.' }, { status: 400 });
-  if (batch.programme_type !== 'PROCLAIMERS') return NextResponse.json({ error: 'This is not a Proclaimers batch.' }, { status: 400 });
 
   // 2. Verify student exists
   const { data: student, error: sErr } = await supabaseAdmin

@@ -27,79 +27,103 @@ export async function GET(request, { params }) {
   const wb = XLSX.utils.book_new();
   const safeCode = batch.batch_code.replace(/\s+/g, '_');
 
-  // ── MIT BATCH ──────────────────────────────────────────────
-  if (batch.programme_type === 'MIT') {
-    const { data: regs, error: regErr } = await supabaseAdmin
-      .from('mit_registrations')
-      .select(`
-        id, department,
-        membership_student:students(surname, first_name, middle_name, student_unique_id, card_number),
-        mit_grades(*)
-      `)
-      .eq('batch_id', id)
-      .order('created_at', { ascending: true });
+  // ── 1. MEMBERSHIP STUDENTS SHEET ────────────────────────────
+  const { data: students } = await supabaseAdmin
+    .from('students')
+    .select('*')
+    .eq('batch_id', id)
+    .order('created_at', { ascending: true });
 
-    if (regErr) return NextResponse.json({ error: regErr.message }, { status: 500 });
+  if (students && students.length > 0) {
+    const memGradesList = await Promise.all(
+      students.map(async (s) => {
+        const { data: g } = await supabaseAdmin
+          .from('student_grades')
+          .select('*')
+          .eq('student_id', s.id)
+          .maybeSingle();
+        return { student: s, grade: g || {} };
+      })
+    );
 
-    const ws_data = [];
+    const ws_data = [
+      ['MEMBERSHIP GRADES', '', '', '', '', '', '', '', '', `BATCH ${batch.batch_code}`, '', '', '', '', '', '', ''],
+      [
+        'STUDENT NAME', 'STUDENT ID', 'CLASS', 'TRAINERS',
+        'ATTENDANCE', 'TEST', 'ASSIGNMENT', 'ASSESSMENT', 'PRESENTATION',
+        'EXAM', 'FINAL GRADES', 'WATER BAPTISM', 'HOLY SPIRIT BAPTISM',
+        'PORTAL', 'STATUS', 'COMMENTS', 'COVENANT DEED',
+      ],
+    ];
 
-    // Row 1: MIT-203 header + BATCH label
-    ws_data.push([
-      'MIT-203', '', '', '', '', '', '', '', '', '', '',
-      `BATCH ${batch.batch_code}`, '', '', '', '', '', '', '', '',
-    ]);
-
-    // Row 2: column headers (matching the grade sheet image exactly)
-    ws_data.push([
-      'STUDENT NAME',
-      'STUDENT ID',
-      'CARD NUMBER',
-      'CLASS',
-      'TRAINERS',
-      'MIDTERM TEST',
-      'INTERACTIONS',
-      'BIBLE STUDY',
-      'ASSIGNMENT',
-      'ATTENDANCE',
-      'CTH',
-      'COMMUNITY SERVICE',
-      'EVANGELISM',
-      'PRESENTATION',
-      'FINAL EXAM',
-      'FINAL GRADES',
-      'STATUS',
-      'COMMENTS',
-      'DEPARTMENT',
-      'DEPARTMENT CONFIRMATION',
-      'FIRST TIMER (YES/NO)',
-      'FIRST TIMER DATE OF JOINING',
-    ]);
-
-    for (const reg of regs || []) {
-      const s = reg.membership_student;
-      const g = reg.mit_grades?.[0] ?? {};
+    for (const { student: s, grade: g } of memGradesList) {
       ws_data.push([
         `${s.surname} ${s.first_name}${s.middle_name ? ' ' + s.middle_name : ''}`,
         s.student_unique_id,
+        g.class ?? '', g.trainer ?? '',
+        g.attendance ?? '', g.test ?? '', g.assignment ?? '', g.assessment ?? '',
+        g.presentation ?? '', g.exam ?? '', g.final_grades ?? '',
+        g.water_baptism ?? '', g.holy_spirit_baptism ?? '',
+        g.portal ?? '', g.status ?? '', g.comments ?? '', g.covenant_deed ?? '',
+      ]);
+    }
+
+    const ws = XLSX.utils.aoa_to_sheet(ws_data);
+    ws['!cols'] = [
+      { wch: 28 }, { wch: 18 }, { wch: 10 }, { wch: 20 }, { wch: 12 },
+      { wch: 10 }, { wch: 14 }, { wch: 14 }, { wch: 16 }, { wch: 10 },
+      { wch: 14 }, { wch: 16 }, { wch: 20 }, { wch: 14 }, { wch: 12 },
+      { wch: 24 }, { wch: 16 },
+    ];
+    XLSX.utils.book_append_sheet(wb, ws, 'Membership');
+  }
+
+  // ── 2. MIT STUDENTS SHEET ───────────────────────────────────
+  const { data: mitRegs } = await supabaseAdmin
+    .from('mit_registrations')
+    .select(`
+      id, department,
+      membership_student:students(surname, first_name, middle_name, student_unique_id, card_number)
+    `)
+    .eq('batch_id', id)
+    .order('created_at', { ascending: true });
+
+  if (mitRegs && mitRegs.length > 0) {
+    const mitGradesList = await Promise.all(
+      mitRegs.map(async (reg) => {
+        const { data: g } = await supabaseAdmin
+          .from('mit_grades')
+          .select('*')
+          .eq('mit_registration_id', reg.id)
+          .maybeSingle();
+        return { reg, grade: g || {} };
+      })
+    );
+
+    const ws_data = [
+      ['MIT GRADES', '', '', '', '', '', '', '', '', '', '', `BATCH ${batch.batch_code}`, '', '', '', '', '', '', '', '', '', ''],
+      [
+        'STUDENT NAME', 'STUDENT ID', 'CARD NUMBER', 'CLASS', 'TRAINERS',
+        'MIDTERM TEST', 'INTERACTIONS', 'BIBLE STUDY', 'ASSIGNMENT', 'ATTENDANCE',
+        'CTH', 'COMMUNITY SERVICE', 'EVANGELISM', 'PRESENTATION', 'FINAL EXAM',
+        'FINAL GRADES', 'STATUS', 'COMMENTS', 'DEPARTMENT', 'DEPARTMENT CONFIRMATION',
+        'FIRST TIMER (YES/NO)', 'FIRST TIMER DATE OF JOINING',
+      ],
+    ];
+
+    for (const { reg, grade: g } of mitGradesList) {
+      const s = reg.membership_student || {};
+      ws_data.push([
+        `${s.surname || ''} ${s.first_name || ''}${s.middle_name ? ' ' + s.middle_name : ''}`,
+        s.student_unique_id || '',
         s.card_number ?? '',
-        g.class ?? '',
-        g.trainer ?? '',
-        g.midterm_test ?? '',
-        g.interactions ?? '',
-        g.bible_study ?? '',
-        g.assignment ?? '',
-        g.attendance ?? '',
-        g.cth ?? '',
-        g.community_service ?? '',
-        g.evangelism ?? '',
-        g.presentation ?? '',
-        g.final_exam ?? '',
-        g.final_grades ?? '',
-        g.status ?? '',
-        g.comments ?? '',
-        g.department ?? reg.department ?? '',
-        g.department_confirmation ?? '',
-        g.first_timer ?? '',
+        g.class ?? '', g.trainer ?? '',
+        g.midterm_test ?? '', g.interactions ?? '', g.bible_study ?? '',
+        g.assignment ?? '', g.attendance ?? '', g.cth ?? '',
+        g.community_service ?? '', g.evangelism ?? '', g.presentation ?? '',
+        g.final_exam ?? '', g.final_grades ?? '', g.status ?? '',
+        g.comments ?? '', g.department ?? reg.department ?? '',
+        g.department_confirmation ?? '', g.first_timer ?? '',
         g.first_timer_date ?? '',
       ]);
     }
@@ -112,69 +136,77 @@ export async function GET(request, { params }) {
       { wch: 14 }, { wch: 12 }, { wch: 24 }, { wch: 18 }, { wch: 24 },
       { wch: 20 }, { wch: 24 },
     ];
-    ws['!merges'] = [
-      { s: { r: 0, c: 0 }, e: { r: 0, c: 10 } },
-      { s: { r: 0, c: 11 }, e: { r: 0, c: 21 } },
-    ];
-
-    const fileName = `MIT-203_Batch_${safeCode}_Grades.xlsx`;
-    XLSX.utils.book_append_sheet(wb, ws, `Batch ${batch.batch_code}`);
-    const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
-    return new Response(buffer, {
-      headers: {
-        'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        'Content-Disposition': `attachment; filename="${fileName}"`,
-      },
-    });
+    XLSX.utils.book_append_sheet(wb, ws, 'MIT');
   }
 
-  // ── MEMBERSHIP BATCH (default) ──────────────────────────────
-  const { data: students, error: studErr } = await supabaseAdmin
-    .from('students')
-    .select('*, student_grades(*)')
+  // ── 3. PROCLAIMERS STUDENTS SHEET ───────────────────────────
+  const { data: procRegs } = await supabaseAdmin
+    .from('proclaimers_registrations')
+    .select(`
+      id, department,
+      membership_student:students(surname, first_name, middle_name, student_unique_id, card_number)
+    `)
     .eq('batch_id', id)
     .order('created_at', { ascending: true });
-  if (studErr) return NextResponse.json({ error: studErr.message }, { status: 500 });
 
-  const ws_data = [];
-  ws_data.push([
-    'MEM-100', '', '', '', '', '', '', '', '',
-    `BATCH ${batch.batch_code}`, '', '', '', '', '', '', '',
-  ]);
-  ws_data.push([
-    'STUDENT NAME', 'STUDENT ID', 'CLASS', 'TRAINERS',
-    'ATTENDANCE', 'TEST', 'ASSIGNMENT', 'ASSESSMENT', 'PRESENTATION',
-    'EXAM', 'FINAL GRADES', 'WATER BAPTISM', 'HOLY SPIRIT BAPTISM',
-    'PORTAL', 'STATUS', 'COMMENTS', 'COVENANT DEED',
-  ]);
+  if (procRegs && procRegs.length > 0) {
+    const procGradesList = await Promise.all(
+      procRegs.map(async (reg) => {
+        const { data: g } = await supabaseAdmin
+          .from('proclaimers_grades')
+          .select('*')
+          .eq('proclaimers_registration_id', reg.id)
+          .maybeSingle();
+        return { reg, grade: g || {} };
+      })
+    );
 
-  for (const s of students || []) {
-    const g = s.student_grades?.[0] ?? {};
-    ws_data.push([
-      `${s.surname} ${s.first_name}${s.middle_name ? ' ' + s.middle_name : ''}`,
-      s.student_unique_id,
-      g.class ?? '', g.trainer ?? '',
-      g.attendance ?? '', g.test ?? '', g.assignment ?? '', g.assessment ?? '',
-      g.presentation ?? '', g.exam ?? '', g.final_grades ?? '',
-      g.water_baptism ?? '', g.holy_spirit_baptism ?? '',
-      g.portal ?? '', g.status ?? '', g.comments ?? '', g.covenant_deed ?? '',
-    ]);
+    const ws_data = [
+      // Top header row matching official Proclaimers format exactly
+      ['PROCLAIMERS GRADES', '', '', '', '', '', 'CONTINUS', '', '', 'MOUNTAIN OF', 'SEMINAR', '', 'STATUS', '', `BATCH ${batch.batch_code}`],
+      [
+        'STUDENT NAME', 'STUDENT ID', 'CLASS', 'TRAINER',
+        'CIH', 'ATTENDANCE', 'ASSESSMENT', 'PRESENTATION', 'PROJECT',
+        'INFLUENCE', 'ATTENDANCE', 'FINAL GRADES', '(RELEASED)', 'COMMENTS', 'DEPARTMENT'
+      ],
+    ];
+
+    for (const { reg, grade: g } of procGradesList) {
+      const s = reg.membership_student || {};
+      ws_data.push([
+        `${s.surname || ''} ${s.first_name || ''}${s.middle_name ? ' ' + s.middle_name : ''}`,
+        s.student_unique_id || '',
+        g.class ?? '', g.trainer ?? '',
+        g.cih ?? '',
+        g.attendance ?? '',
+        g.assessment ?? '',
+        g.presentation ?? '',
+        g.project ?? '',
+        g.mountain_of_influence ?? '',
+        g.seminar_attendance ?? '',
+        g.final_grades ?? '',
+        g.status ?? '',
+        g.comments ?? '',
+        g.department ?? reg.department ?? '',
+      ]);
+    }
+
+    const ws = XLSX.utils.aoa_to_sheet(ws_data);
+    ws['!cols'] = [
+      { wch: 28 }, { wch: 18 }, { wch: 10 }, { wch: 20 },
+      { wch: 10 }, { wch: 14 }, { wch: 16 }, { wch: 16 }, { wch: 12 },
+      { wch: 18 }, { wch: 16 }, { wch: 14 }, { wch: 14 }, { wch: 24 }, { wch: 18 },
+    ];
+    XLSX.utils.book_append_sheet(wb, ws, 'Proclaimers');
   }
 
-  const ws = XLSX.utils.aoa_to_sheet(ws_data);
-  ws['!cols'] = [
-    { wch: 28 }, { wch: 18 }, { wch: 10 }, { wch: 20 }, { wch: 12 },
-    { wch: 10 }, { wch: 14 }, { wch: 14 }, { wch: 16 }, { wch: 10 },
-    { wch: 14 }, { wch: 16 }, { wch: 20 }, { wch: 14 }, { wch: 12 },
-    { wch: 24 }, { wch: 16 },
-  ];
-  ws['!merges'] = [
-    { s: { r: 0, c: 0 }, e: { r: 0, c: 8 } },
-    { s: { r: 0, c: 9 }, e: { r: 0, c: 16 } },
-  ];
+  // Fallback if batch has no students in any category
+  if (wb.SheetNames.length === 0) {
+    const ws = XLSX.utils.aoa_to_sheet([['No registrations found for this batch.']]);
+    XLSX.utils.book_append_sheet(wb, ws, 'Summary');
+  }
 
-  const fileName = `MEM-100_Batch_${safeCode}_Grades.xlsx`;
-  XLSX.utils.book_append_sheet(wb, ws, `Batch ${batch.batch_code}`);
+  const fileName = `Batch_${safeCode}_Grades.xlsx`;
   const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
   return new Response(buffer, {
     headers: {

@@ -1,14 +1,9 @@
-import PhotoUploader from './PhotoUploader';
-
 export default function RegistrationForm({
-  form, update, photoPreview, onPhotoChange, onSubmit, submitting, error,
+  form, update, onSubmit, submitting, error,
 }) {
   return (
     <form onSubmit={onSubmit}>
       {error && <div className="error-box">{error}</div>}
-
-      <div className="section-title">Photo</div>
-      <PhotoUploader preview={photoPreview} onChange={onPhotoChange} />
 
       <div className="section-title">Personal Details</div>
       <div className="field">
@@ -42,6 +37,23 @@ export default function RegistrationForm({
             <label key={g}>
               <input type="radio" name="gender" checked={form.gender === g} onChange={() => update('gender', g)} required />
               {g}
+            </label>
+          ))}
+        </div>
+      </div>
+      <div className="field">
+        <label style={{ fontWeight: 700, color: 'var(--navy)' }}>Are you a First Timer? *</label>
+        <div className="radio-row">
+          {['Yes', 'No'].map((v) => (
+            <label key={v}>
+              <input
+                type="radio"
+                name="is_first_timer"
+                checked={form.is_first_timer === v}
+                onChange={() => update('is_first_timer', v)}
+                required
+              />
+              {v === 'Yes' ? 'Yes — I am a First Timer' : 'No — Regular Member'}
             </label>
           ))}
         </div>

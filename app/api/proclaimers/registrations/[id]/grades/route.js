@@ -11,8 +11,7 @@ async function requireAdmin(request) {
 }
 
 /**
- * GET /api/mit/registrations/[id]/grades
- * Returns the MIT registration + grades for a given registration ID.
+ * GET /api/proclaimers/registrations/[id]/grades
  */
 export async function GET(request, { params }) {
   const user = await requireAdmin(request);
@@ -21,7 +20,7 @@ export async function GET(request, { params }) {
   const { id } = params;
 
   const { data: reg, error } = await supabaseAdmin
-    .from('mit_registrations')
+    .from('proclaimers_registrations')
     .select(`
       *,
       membership_student:students(
@@ -36,23 +35,31 @@ export async function GET(request, { params }) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   if (!reg) return NextResponse.json({ error: 'Registration not found.' }, { status: 404 });
 
-  const { data: mg } = await supabaseAdmin
-    .from('mit_grades')
+  const { data: pg } = await supabaseAdmin
+    .from('proclaimers_grades')
     .select('*')
-    .eq('mit_registration_id', id)
+    .eq('proclaimers_registration_id', id)
     .maybeSingle();
+
+  // Map database columns back to form fields if needed
+  const mappedGrades = pg ? {
+    ...pg,
+    cih: pg.cih ?? pg.assignment ?? null,
+    project: pg.project ?? pg.exam ?? null,
+    mountain_of_influence: pg.mountain_of_influence ?? null,
+    seminar_attendance: pg.seminar_attendance ?? null,
+  } : null;
 
   const registration = {
     ...reg,
-    mit_grades: mg ? [mg] : [],
+    proclaimers_grades: mappedGrades ? [mappedGrades] : [],
   };
 
   return NextResponse.json({ registration });
 }
 
 /**
- * PATCH /api/mit/registrations/[id]/grades
- * Updates MIT grades for a registration.
+ * PATCH /api/proclaimers/registrations/[id]/grades
  */
 export async function PATCH(request, { params }) {
   const user = await requireAdmin(request);
@@ -64,38 +71,46 @@ export async function PATCH(request, { params }) {
     return NextResponse.json({ error: 'Invalid JSON.' }, { status: 400 });
   }
 
-  const allowed = [
-    'class', 'trainer', 'midterm_test', 'interactions', 'bible_study',
-    'assignment', 'attendance', 'cth', 'community_service', 'evangelism',
-    'presentation', 'final_exam', 'final_grades', 'status', 'comments',
-    'department', 'department_confirmation', 'first_timer', 'first_timer_date',
+  // Exact columns existing in database table proclaimers_grades
+  const DB_COLUMNS = [
+    'class', 'trainer', 'attendance', 'assignment', 'assessment',
+    'presentation', 'exam', 'final_grades', 'status', 'comments', 'department'
   ];
 
   const payload = {};
-  for (const key of allowed) {
-    if (key in body) payload[key] = body[key] === '' ? null : body[key];
+  for (const key of DB_COLUMNS) {
+    if (key in body) {
+      payload[key] = body[key] === '' ? null : body[key];
+    }
   }
+
+  // Clean fallback mapping for form fields if DB table has standard schema columns
+  if ('cih' in body && !('assignment' in payload)) {
+    payload.assignment = body.cih === '' ? null : body.cih;
+  }
+  if ('project' in body && !('exam' in payload)) {
+    payload.exam = body.project === '' ? null : body.project;
+  }
+
   payload.updated_at = new Date().toISOString();
 
-  // 1. Check if a grade record already exists for this registration ID
   const { data: existingGrade } = await supabaseAdmin
-    .from('mit_grades')
+    .from('proclaimers_grades')
     .select('id')
-    .eq('mit_registration_id', id)
+    .eq('proclaimers_registration_id', id)
     .maybeSingle();
 
   let dbError = null;
-
   if (existingGrade) {
     const { error } = await supabaseAdmin
-      .from('mit_grades')
+      .from('proclaimers_grades')
       .update(payload)
-      .eq('mit_registration_id', id);
+      .eq('proclaimers_registration_id', id);
     dbError = error;
   } else {
     const { error } = await supabaseAdmin
-      .from('mit_grades')
-      .insert({ mit_registration_id: id, ...payload });
+      .from('proclaimers_grades')
+      .insert({ proclaimers_registration_id: id, ...payload });
     dbError = error;
   }
 
@@ -103,19 +118,17 @@ export async function PATCH(request, { params }) {
     return NextResponse.json({ error: dbError.message }, { status: 500 });
   }
 
-  // Also keep department synced in mit_registrations table if provided
   if (payload.department !== undefined) {
     await supabaseAdmin
-      .from('mit_registrations')
+      .from('proclaimers_registrations')
       .update({ department: payload.department })
       .eq('id', id);
   }
 
-  // Return the full updated grade record so the UI can update immediately
   const { data: updatedGrade } = await supabaseAdmin
-    .from('mit_grades')
+    .from('proclaimers_grades')
     .select('*')
-    .eq('mit_registration_id', id)
+    .eq('proclaimers_registration_id', id)
     .maybeSingle();
 
   return NextResponse.json(

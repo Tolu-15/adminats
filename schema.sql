@@ -46,6 +46,7 @@ create table if not exists students (
   baptized_holy_spirit boolean,
   baptized_holy_spirit_details text,
   church_join_date text,
+  is_first_timer text default 'Yes',
   challenges text,
   photo_url text,
 
@@ -65,9 +66,17 @@ language plpgsql
 as $$
 declare
   next_val int;
+  candidate text;
+  exists_already boolean;
 begin
-  next_val := nextval('student_id_seq');
-  return 'ATS-' || p_batch_code || '-' || lpad(next_val::text, 4, '0');
+  loop
+    next_val := nextval('student_id_seq');
+    candidate := 'ATS-' || p_batch_code || '-' || lpad(next_val::text, 4, '0');
+    select count(*) > 0 into exists_already from students where student_unique_id = candidate;
+    if not exists_already then
+      return candidate;
+    end if;
+  end loop;
 end;
 $$;
 
@@ -283,4 +292,41 @@ drop policy if exists "admins manage proclaimers_grades" on proclaimers_grades;
 create policy "admins manage proclaimers_grades" on proclaimers_grades
   for all using (auth.role() = 'authenticated')
   with check (auth.role() = 'authenticated');
+
+-- ============================================================
+-- [NEW] FIRST TIMER COLUMN MIGRATION
+-- Run this single line if your database already exists:
+-- ============================================================
+alter table students add column if not exists is_first_timer text default 'Yes';
+
+
+-- ============================================================
+-- RETAKE SYSTEM NOTES
+-- ============================================================
+-- No new DB columns are required for the retake feature.
+-- The retake approach works as follows:
+--
+-- MEMBERSHIP RETAKE:
+--   1. Student searches by existing student_unique_id or card_number.
+--   2. API /api/membership/retake updates students.batch_id to the new batch.
+--   3. The student_grades row is RESET (grades cleared) with a comments field
+--      starting with "RETAKE —" — this is used for detection in the admin UI.
+--
+-- MIT RETAKE:
+--   1. MIT lookup returns isRetake=true + priorAttempts[] if the student has
+--      previous mit_registrations rows.
+--   2. /api/mit/register always allows a new row per batch (no global block).
+--   3. A new mit_grades row is created with comments starting "RETAKE —".
+--
+-- PROCLAIMERS RETAKE:
+--   Handled the same as MIT — a student can have multiple proclaimers_registrations
+--   across different batches, each with their own grade record.
+--
+-- ADMIN DETECTION:
+--   Student profile checks memGrades.comments and mitGrades.comments for "RETAKE"
+--   prefix to display the 🔄 Retake badge on the profile card.
+-- ============================================================
+
+
+
 

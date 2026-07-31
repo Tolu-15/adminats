@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabaseClient';
 
 const FIELDS = [
@@ -26,6 +26,12 @@ export default function GradeEditForm({ studentId, initialGrades = {}, onSaved }
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+
+  useEffect(() => {
+    if (initialGrades && Object.keys(initialGrades).length > 0) {
+      setForm(initialGrades);
+    }
+  }, [initialGrades]);
 
   function handleChange(key, val) {
     setForm((prev) => ({ ...prev, [key]: val }));

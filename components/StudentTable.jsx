@@ -38,15 +38,18 @@ export default function StudentTable({ students, searchQuery = '' }) {
           <th>Phone</th>
           <th>Status</th>
           <th>Registered</th>
+          <th>Actions</th>
         </tr>
       </thead>
       <tbody>
-        {filtered.map((s) => (
-          <tr key={s.id}>
-            <td>
-              {s.photo_url
-                ? <img src={s.photo_url} alt="" style={{ width: 36, height: 36, borderRadius: '50%', objectFit: 'cover' }} />
-                : (
+        {filtered.map((s) => {
+          const status = (s.student_grades?.[0]?.status || '').toString().trim().toUpperCase();
+          return (
+            <tr key={s.id}>
+              <td>
+                {s.photo_url ? (
+                  <img src={s.photo_url} alt="" style={{ width: 36, height: 36, borderRadius: '50%', objectFit: 'cover' }} />
+                ) : (
                   <div style={{
                     width: 36, height: 36, borderRadius: '50%',
                     background: 'linear-gradient(135deg,#E4C875,#B8862E)',
@@ -56,23 +59,35 @@ export default function StudentTable({ students, searchQuery = '' }) {
                     {s.first_name?.[0]}{s.surname?.[0]}
                   </div>
                 )}
-            </td>
-            <td><span className="badge badge-gold">{s.student_unique_id}</span></td>
-            <td>
-              <Link href={`/admin/students/${s.id}`} style={{ fontWeight: 600, color: 'var(--navy)' }}>
-                {s.surname} {s.first_name}
-              </Link>
-            </td>
-            <td className="muted text-sm">{s.email}</td>
-            <td className="muted text-sm">{s.phone}</td>
-            <td>
-              {s.student_grades?.[0]?.status
-                ? <span className={`grade-pill ${s.student_grades[0].status.toLowerCase()}`}>{s.student_grades[0].status}</span>
-                : <span className="grade-pill pending">Pending</span>}
-            </td>
-            <td className="muted text-sm">{new Date(s.created_at).toLocaleDateString()}</td>
-          </tr>
-        ))}
+              </td>
+              <td><span className="badge badge-gold">{s.student_unique_id}</span></td>
+              <td>
+                <Link href={`/admin/students/${s.id}`} style={{ fontWeight: 600, color: 'var(--navy)' }}>
+                  {s.surname} {s.first_name}
+                </Link>
+              </td>
+              <td className="muted text-sm">{s.email}</td>
+              <td className="muted text-sm">{s.phone}</td>
+              <td>
+                {status === 'PASSED' ? (
+                  <span className="grade-pill passed">PASSED</span>
+                ) : status === 'FAILED' ? (
+                  <span className="grade-pill failed">FAILED</span>
+                ) : (
+                  <span className="grade-pill pending">Pending</span>
+                )}
+              </td>
+              <td className="muted text-sm">{new Date(s.created_at).toLocaleDateString()}</td>
+              <td>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <Link href={`/admin/students/${s.id}`} className="btn btn-primary btn-sm">
+                    Edit Grades
+                  </Link>
+                </div>
+              </td>
+            </tr>
+          );
+        })}
       </tbody>
     </table>
   );

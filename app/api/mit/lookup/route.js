@@ -5,8 +5,8 @@ import { supabaseAdmin } from '../../../../lib/supabaseAdmin';
  * GET /api/mit/lookup?q=ATS-055-0001
  *   or GET /api/mit/lookup?q=CARD-12345
  *
- * Public route (no admin auth needed — used from the public registration page).
- * Returns student biodata + membership status if PASSED.
+ * Public route — checks student eligibility for MIT registration.
+ * Also detects retake scenarios (student previously attempted but did not pass).
  */
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
@@ -27,7 +27,7 @@ export async function GET(request) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   if (!student) return NextResponse.json({ error: 'No student found with that ID or card number.' }, { status: 404 });
 
-  // 2. Fetch student_grades directly by student_id to ensure reliable status lookup
+  // 2. Check Membership PASSED
   const { data: grade } = await supabaseAdmin
     .from('student_grades')
     .select('status')
@@ -48,6 +48,21 @@ export async function GET(request) {
     }, { status: 403 });
   }
 
+  // 3. Check for prior MIT history (retake detection)
+  const { data: priorMit } = await supabaseAdmin
+    .from('mit_registrations')
+    .select('id, batch_id, batches(batch_name), mit_grades(status)')
+    .eq('membership_student_id', student.id);
+
+  const isRetake = priorMit && priorMit.length > 0;
+  const priorAttempts = (priorMit || []).map((r) => {
+    const g = Array.isArray(r.mit_grades) ? r.mit_grades[0] : r.mit_grades;
+    return {
+      batch: r.batches?.batch_name || r.batch_id,
+      status: (g?.status || 'NOT GRADED').toUpperCase(),
+    };
+  });
+
   return NextResponse.json({
     student: {
       id: student.id,
@@ -64,6 +79,8 @@ export async function GET(request) {
       card_number: student.card_number,
       church_join_date: student.church_join_date,
       membership_status: statusRaw,
+      isRetake,
+      priorAttempts,
     },
   });
 }

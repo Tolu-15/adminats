@@ -151,6 +151,7 @@ create table if not exists student_grades (
   status                text,               -- "PASSED" / "FAILED"
   comments              text,
   covenant_deed         text,               -- "SIGNED" / ""
+  id_card_collected_date date,              -- date physical ID card was collected
 
   updated_at      timestamptz not null default now()
 );
@@ -327,6 +328,11 @@ alter table students add column if not exists is_first_timer text default 'Yes';
 --   prefix to display the 🔄 Retake badge on the profile card.
 -- ============================================================
 
+-- ============================================================
+-- [NEW] ID CARD COLLECTED DATE MIGRATION
+-- Run this single line if your database already exists:
+-- ============================================================
+alter table student_grades add column if not exists id_card_collected_date date;
 
 
 

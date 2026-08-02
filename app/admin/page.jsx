@@ -300,8 +300,8 @@ export default function AdminDashboard() {
                 <StatCard
                   icon="fa-layer-group"
                   label="Batches Overview"
-                  value={`${stats.activeBatches} Active`}
-                  sub={`${stats.totalBatches} Total Batches Registered`}
+                  value={`${stats.totalBatches} Total`}
+                  sub={`${stats.activeBatches} Active · ${stats.totalBatches - stats.activeBatches} Inactive`}
                   colorClass="green"
                 />
               </div>
@@ -327,7 +327,7 @@ export default function AdminDashboard() {
                     <h3 style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--navy)', margin: 0 }}>
                       📊 Student Demographics
                     </h3>
-                    <span className="badge badge-gold" style={{ fontSize: '0.72rem' }}>Membership Demographics</span>
+
                   </div>
 
                   <CleanDemographicsGraph
@@ -431,7 +431,7 @@ export default function AdminDashboard() {
                           </a>
                           <div style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                             <span className="batch-card-code">#{b.batch_code}</span>
-                            {b.programme_type && (
+                            {b.programme_type && b.programme_type !== 'MEMBERSHIP' && (
                               <span className="badge badge-gold" style={{ fontSize: '0.68rem', padding: '2px 8px' }}>
                                 {b.programme_type}
                               </span>

@@ -49,7 +49,7 @@ export default function Sidebar() {
           <Logo size={56} style={{ borderRadius: '10px', flexShrink: 0 }} />
           <div className="sidebar-brand-text">
             <strong>ATS Admin</strong>
-            <span>Membership Portal</span>
+            <span>ATS Records Portal</span>
           </div>
           <button className="mobile-close-btn" onClick={closeMobile}>✕</button>
         </div>

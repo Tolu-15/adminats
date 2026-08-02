@@ -19,6 +19,7 @@ const FIELDS = [
   { key: 'status', label: 'Status', type: 'select', options: ['', 'PASSED', 'FAILED'] },
   { key: 'comments', label: 'Comments', type: 'textarea', placeholder: 'Any comments…' },
   { key: 'covenant_deed', label: 'Covenant Deed', type: 'select', options: ['', 'SIGNED', 'NOT SIGNED'] },
+  { key: 'id_card_collected_date', label: 'ID Card Collected Date', type: 'date', placeholder: 'YYYY-MM-DD' },
 ];
 
 export default function GradeEditForm({ studentId, initialGrades = {}, onSaved }) {

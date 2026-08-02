@@ -49,6 +49,7 @@ export async function PATCH(request, { params }) {
     status:              body.status               || null,
     comments:            body.comments             || null,
     covenant_deed:       body.covenant_deed        || null,
+    id_card_collected_date: body.id_card_collected_date || null,
     updated_at:          new Date().toISOString(),
   };
 

@@ -47,12 +47,12 @@ export async function GET(request, { params }) {
     );
 
     const ws_data = [
-      ['MEMBERSHIP GRADES', '', '', '', '', '', '', '', '', `BATCH ${batch.batch_code}`, '', '', '', '', '', '', ''],
+      ['MEMBERSHIP GRADES', '', '', '', '', '', '', '', '', '', `BATCH ${batch.batch_code}`, '', '', '', '', '', '', '', ''],
       [
-        'STUDENT NAME', 'STUDENT ID', 'CLASS', 'TRAINERS',
+        'STUDENT NAME', 'STUDENT ID', 'CARD NUMBER', 'CLASS', 'TRAINERS',
         'ATTENDANCE', 'TEST', 'ASSIGNMENT', 'ASSESSMENT', 'PRESENTATION',
         'EXAM', 'FINAL GRADES', 'WATER BAPTISM', 'HOLY SPIRIT BAPTISM',
-        'PORTAL', 'STATUS', 'COMMENTS', 'COVENANT DEED',
+        'PORTAL', 'STATUS', 'COMMENTS', 'COVENANT DEED', 'ID CARD COLLECTED DATE',
       ],
     ];
 
@@ -60,20 +60,22 @@ export async function GET(request, { params }) {
       ws_data.push([
         `${s.surname} ${s.first_name}${s.middle_name ? ' ' + s.middle_name : ''}`,
         s.student_unique_id,
+        s.card_number ?? '',
         g.class ?? '', g.trainer ?? '',
         g.attendance ?? '', g.test ?? '', g.assignment ?? '', g.assessment ?? '',
         g.presentation ?? '', g.exam ?? '', g.final_grades ?? '',
         g.water_baptism ?? '', g.holy_spirit_baptism ?? '',
         g.portal ?? '', g.status ?? '', g.comments ?? '', g.covenant_deed ?? '',
+        g.id_card_collected_date ?? '',
       ]);
     }
 
     const ws = XLSX.utils.aoa_to_sheet(ws_data);
     ws['!cols'] = [
-      { wch: 28 }, { wch: 18 }, { wch: 10 }, { wch: 20 }, { wch: 12 },
+      { wch: 28 }, { wch: 18 }, { wch: 16 }, { wch: 10 }, { wch: 20 }, { wch: 12 },
       { wch: 10 }, { wch: 14 }, { wch: 14 }, { wch: 16 }, { wch: 10 },
       { wch: 14 }, { wch: 16 }, { wch: 20 }, { wch: 14 }, { wch: 12 },
-      { wch: 24 }, { wch: 16 },
+      { wch: 24 }, { wch: 16 }, { wch: 24 },
     ];
     XLSX.utils.book_append_sheet(wb, ws, 'Membership');
   }

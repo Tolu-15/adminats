@@ -410,6 +410,15 @@ export async function POST(request, { params }) {
         }
 
         if (targetStudentId) {
+          // Update card_number on the student profile if provided in the sheet
+          const importedCardNo = toStr(r['CARD NUMBER'] || r['CARD NO'] || r['ID CARD NO']);
+          if (importedCardNo) {
+            await supabaseAdmin
+              .from('students')
+              .update({ card_number: importedCardNo })
+              .eq('id', targetStudentId);
+          }
+
           const gradePayload = {
             student_id: targetStudentId,
             class: toStr(r['CLASS GROUP'] || r['CLASS']),
@@ -421,12 +430,13 @@ export async function POST(request, { params }) {
             presentation: toNum(r['PRESENTATION']),
             exam: toNum(r['EXAM']),
             final_grades: toNum(r['FINAL GRADES'] || r['FINAL GRADE']),
-            water_baptism: toStr(r['BAPTISM (WATER)']),
-            holy_spirit_baptism: toStr(r['BAPTISM (HOLY SPIRIT)']),
+            water_baptism: toStr(r['BAPTISM (WATER)'] || r['WATER BAPTISM']),
+            holy_spirit_baptism: toStr(r['BAPTISM (HOLY SPIRIT)'] || r['HOLY SPIRIT BAPTISM']),
             portal: toStr(r['PORTAL']),
             status: toStr(r['STATUS']),
             comments: toStr(r['COMMENTS']),
             covenant_deed: toStr(r['COVENANT DEED']),
+            id_card_collected_date: parseExcelDate(r['ID CARD COLLECTED DATE'] || r['CARD COLLECTED DATE']),
             updated_at: new Date().toISOString(),
           };
 

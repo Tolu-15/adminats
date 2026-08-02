@@ -29,6 +29,7 @@ const EXTRA_FIELDS = [
   { key: 'portal',              label: 'Portal',              type: 'text' },
   { key: 'status',              label: 'Status',              type: 'select', options: ['', 'PASSED', 'FAILED'] },
   { key: 'covenant_deed',       label: 'Covenant Deed',       type: 'select', options: ['', 'SIGNED', 'NOT SIGNED'] },
+  { key: 'id_card_collected_date', label: 'ID Card Collected Date', type: 'date' },
   { key: 'comments',            label: 'Comments',            type: 'textarea' },
 ];
 
@@ -456,7 +457,7 @@ export default function StudentProfile() {
                             />
                           ) : (
                             <input
-                              type="text"
+                              type={type === 'date' ? 'date' : 'text'}
                               value={gradeForm[key] || ''}
                               onChange={(e) => setGradeForm((p) => ({ ...p, [key]: e.target.value }))}
                               style={{ width: '100%', padding: '6px 8px', borderRadius: 6, border: '1.5px solid var(--border)', fontSize: '0.85rem' }}

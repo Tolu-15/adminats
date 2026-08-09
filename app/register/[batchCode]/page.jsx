@@ -5,6 +5,7 @@ import { useParams } from 'next/navigation';
 import { supabase } from '../../../lib/supabaseClient';
 import Logo from '../../../components/Logo';
 import RegistrationForm from '../../../components/RegistrationForm';
+import Toast from '../../../components/Toast';
 
 const initialMemForm = {
   surname: '', first_name: '', middle_name: '', email: '', phone: '',
@@ -28,6 +29,7 @@ export default function RegisterPage() {
   const [memForm, setMemForm] = useState(initialMemForm);
   const [memSubmitting, setMemSubmitting] = useState(false);
   const [memError, setMemError] = useState('');
+  const [memToast, setMemToast] = useState('');
   const [memResult, setMemResult] = useState(null);
 
   // Retake lookup state
@@ -83,6 +85,7 @@ export default function RegisterPage() {
     setSubmitError('');
     setSuccessMsg('');
     setMemError('');
+    setMemToast('');
     setMemResult(null);
     setMemMode('new');
     setRetakeQuery('');
@@ -95,6 +98,7 @@ export default function RegisterPage() {
   function switchMemMode(mode) {
     setMemMode(mode);
     setMemError('');
+    setMemToast('');
     setMemResult(null);
     setRetakeQuery('');
     setRetakeStudent(null);
@@ -113,10 +117,25 @@ export default function RegisterPage() {
     e.preventDefault();
     setMemError('');
 
-    const required = ['surname', 'first_name', 'email', 'phone', 'gender', 'is_first_timer'];
+    const required = ['surname', 'first_name', 'email', 'phone', 'date_of_birth', 'gender', 'is_first_timer'];
     for (const key of required) {
       if (!memForm[key]) {
         setMemError('Please fill in all required fields.');
+        return;
+      }
+    }
+
+    // Age validation — minimum 16 years based on DOB
+    if (memForm.date_of_birth) {
+      const today = new Date();
+      const dob = new Date(memForm.date_of_birth);
+      let age = today.getFullYear() - dob.getFullYear();
+      const monthDiff = today.getMonth() - dob.getMonth();
+      if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < dob.getDate())) {
+        age--;
+      }
+      if (age < 16) {
+        setMemToast('You must be at least 16 years old to register for Membership.');
         return;
       }
     }
@@ -130,11 +149,23 @@ export default function RegisterPage() {
       });
 
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error || 'Registration failed.');
+      if (!res.ok) {
+        const errorMsg = json.error || 'Registration failed.';
+        if (errorMsg.includes('16 years')) {
+          setMemToast(errorMsg);
+        } else {
+          setMemError(errorMsg);
+        }
+        return;
+      }
 
       setMemResult(json.student);
     } catch (err) {
-      setMemError(err.message);
+      if (err.message && err.message.includes('16 years')) {
+        setMemToast(err.message);
+      } else {
+        setMemError(err.message);
+      }
     } finally {
       setMemSubmitting(false);
     }
@@ -281,6 +312,7 @@ export default function RegisterPage() {
 
   return (
     <div className="reg-bg">
+      <Toast message={memToast} type="error" onClose={() => setMemToast('')} />
       <div className={`reg-card ${programme === 'MEMBERSHIP' ? 'wide' : ''}`} style={{ maxWidth: programme === 'MEMBERSHIP' ? 840 : 580 }}>
         
         {/* --- TOP HEADER & LOGO --- */}
@@ -374,13 +406,13 @@ export default function RegisterPage() {
                       borderRadius: 12, padding: 20, margin: '20px 0', textAlign: 'center'
                     }}>
                       <div style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-                        Your Unique Student ID
+                        Your Unique Reg. No.
                       </div>
                       <div style={{ fontSize: '1.8rem', fontWeight: 800, color: 'var(--navy)', margin: '6px 0' }}>
                         {memResult.student_unique_id}
                       </div>
                       <div className="muted text-sm">
-                        Please save this ID — you will need it for future MIT &amp; Proclaimers registrations.
+                        Please save this Reg. No — you will need it for MIT &amp; Proclaimers registrations.
                       </div>
                     </div>
                   </div>

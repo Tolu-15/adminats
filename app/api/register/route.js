@@ -7,8 +7,25 @@ export async function POST(request) {
     const body = await request.json();
     const { batch_id, surname, first_name, email, phone, gender } = body;
 
-    if (!batch_id || !surname || !first_name || !email || !phone || !gender) {
+    if (!batch_id || !surname || !first_name || !email || !phone || !gender || !body.date_of_birth) {
       return NextResponse.json({ error: 'Missing required fields.' }, { status: 400 });
+    }
+
+    // Age validation — minimum 16 years based on date_of_birth (when provided)
+    if (body.date_of_birth) {
+      const today = new Date();
+      const dob = new Date(body.date_of_birth);
+      let age = today.getFullYear() - dob.getFullYear();
+      const monthDiff = today.getMonth() - dob.getMonth();
+      if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < dob.getDate())) {
+        age--;
+      }
+      if (age < 16) {
+        return NextResponse.json(
+          { error: 'Registrant must be at least 16 years old to join Membership.' },
+          { status: 400 }
+        );
+      }
     }
 
     // Confirm batch exists and is active

@@ -27,8 +27,8 @@ export default function RegistrationForm({
         <input type="tel" value={form.phone} onChange={(e) => update('phone', e.target.value)} required />
       </div>
       <div className="field">
-        <label>Date of Birth</label>
-        <input type="date" value={form.date_of_birth} onChange={(e) => update('date_of_birth', e.target.value)} />
+        <label>Date of Birth *</label>
+        <input type="date" value={form.date_of_birth} onChange={(e) => update('date_of_birth', e.target.value)} required />
       </div>
       <div className="field">
         <label>Gender *</label>

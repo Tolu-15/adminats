@@ -55,6 +55,12 @@ export default function StudentProfile() {
   const [cardNumber, setCardNumber] = useState('');
   const [savingCard, setSavingCard] = useState(false);
 
+  // Contact info editing
+  const [editingContact, setEditingContact] = useState(false);
+  const [contactForm, setContactForm] = useState({});
+  const [savingContact, setSavingContact] = useState(false);
+  const [contactMsg, setContactMsg] = useState(null);
+
   // Active right-panel tab
   const [activeTab, setActiveTab] = useState('MEMBERSHIP');
 
@@ -82,6 +88,13 @@ export default function StudentProfile() {
       setMitReg(json.mitRegistration || null);
       setProcReg(json.proclaimersRegistration || null);
       setCardNumber(json.student?.card_number || '');
+      setContactForm({
+        email: json.student?.email || '',
+        phone: json.student?.phone || '',
+        home_address: json.student?.home_address || '',
+        state_of_origin: json.student?.state_of_origin || '',
+        nationality: json.student?.nationality || '',
+      });
     }
     setLoading(false);
   }
@@ -149,6 +162,38 @@ export default function StudentProfile() {
       setEditingCard(false);
     } else {
       alert(json.error || 'Failed to update card number');
+    }
+  }
+
+  async function handleSaveContact(e) {
+    e.preventDefault();
+    setSavingContact(true);
+    setContactMsg(null);
+    try {
+      const { data: { session: sess } } = await supabase.auth.getSession();
+      const token = sess?.access_token || session?.access_token;
+      const res = await fetch(`/api/students/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(contactForm),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to update contact info');
+      setStudent(json.student);
+      setContactForm({
+        email: json.student?.email || '',
+        phone: json.student?.phone || '',
+        home_address: json.student?.home_address || '',
+        state_of_origin: json.student?.state_of_origin || '',
+        nationality: json.student?.nationality || '',
+      });
+      setEditingContact(false);
+      setContactMsg({ type: 'success', text: 'Contact info saved.' });
+      setTimeout(() => setContactMsg(null), 3000);
+    } catch (err) {
+      setContactMsg({ type: 'error', text: err.message });
+    } finally {
+      setSavingContact(false);
     }
   }
 
@@ -333,12 +378,68 @@ export default function StudentProfile() {
                 )}
               </div>
 
-              <div className="section-title">Contact Information</div>
-              <ProfileRow label="Email" value={student.email} />
-              <ProfileRow label="Phone" value={student.phone} />
-              <ProfileRow label="Home Address" value={student.home_address} />
-              <ProfileRow label="State of Origin" value={student.state_of_origin} />
-              <ProfileRow label="Nationality" value={student.nationality} />
+              {/* ── CONTACT INFORMATION ── */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 20, marginBottom: 4 }}>
+                <div className="section-title" style={{ margin: 0 }}>Contact Information</div>
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                  {contactMsg && (
+                    <span style={{ fontSize: '0.75rem', color: contactMsg.type === 'success' ? '#16a34a' : '#dc2626' }}>
+                      {contactMsg.text}
+                    </span>
+                  )}
+                  {!editingContact && (
+                    <button
+                      className="btn btn-ghost btn-sm"
+                      onClick={() => { setEditingContact(true); setContactMsg(null); }}
+                      style={{ fontSize: '0.75rem' }}
+                    >
+                      ✏️ Edit
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {editingContact ? (
+                <form onSubmit={handleSaveContact} style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 8 }}>
+                  {[
+                    { key: 'email', label: 'Email', type: 'email' },
+                    { key: 'phone', label: 'Phone', type: 'text' },
+                    { key: 'home_address', label: 'Home Address', type: 'text' },
+                    { key: 'state_of_origin', label: 'State of Origin', type: 'text' },
+                    { key: 'nationality', label: 'Nationality', type: 'text' },
+                  ].map(({ key, label, type }) => (
+                    <div key={key}>
+                      <div style={{ fontSize: '0.72rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5, color: 'var(--muted)', marginBottom: 3 }}>{label}</div>
+                      <input
+                        type={type}
+                        value={contactForm[key]}
+                        onChange={(e) => setContactForm((p) => ({ ...p, [key]: e.target.value }))}
+                        style={{ width: '100%', padding: '6px 8px', fontSize: '0.85rem', border: '1.5px solid var(--gold)', borderRadius: 6, background: 'var(--paper)', boxSizing: 'border-box' }}
+                      />
+                    </div>
+                  ))}
+                  <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+                    <button className="btn btn-primary btn-sm" disabled={savingContact}>
+                      {savingContact ? 'Saving…' : '💾 Save Contact'}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-outline btn-sm"
+                      onClick={() => { setEditingContact(false); setContactMsg(null); }}
+                    >
+                      ✕ Cancel
+                    </button>
+                  </div>
+                </form>
+              ) : (
+                <>
+                  <ProfileRow label="Email" value={student.email} />
+                  <ProfileRow label="Phone" value={student.phone} />
+                  <ProfileRow label="Home Address" value={student.home_address} />
+                  <ProfileRow label="State of Origin" value={student.state_of_origin} />
+                  <ProfileRow label="Nationality" value={student.nationality} />
+                </>
+              )}
 
               <div className="section-title">Personal Details</div>
               <ProfileRow label="First Timer" value={isFirstTimer ? '⭐ Yes — First Timer' : 'No — Regular Member'} />

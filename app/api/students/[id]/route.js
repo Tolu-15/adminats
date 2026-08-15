@@ -121,6 +121,11 @@ export async function PATCH(request, { params }) {
     }
   }
 
+  // Automatically format names to BLOCK LETTERS (UPPERCASE)
+  if (payload.surname) payload.surname = payload.surname.toUpperCase().trim();
+  if (payload.first_name) payload.first_name = payload.first_name.toUpperCase().trim();
+  if (payload.middle_name) payload.middle_name = payload.middle_name.toUpperCase().trim();
+
   // Coerce boolean fields
   if ('baptized_water' in payload) {
     payload.baptized_water = payload.baptized_water === 'Yes' || payload.baptized_water === true;

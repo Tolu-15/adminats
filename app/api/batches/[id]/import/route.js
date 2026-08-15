@@ -39,8 +39,8 @@ function normalizeGender(val) {
 }
 
 function parseFullName(fullNameStr) {
-  if (!fullNameStr) return { first_name: 'Student', surname: 'Record', middle_name: null };
-  const parts = String(fullNameStr).trim().split(/\s+/).filter(Boolean);
+  if (!fullNameStr) return { first_name: 'STUDENT', surname: 'RECORD', middle_name: null };
+  const parts = String(fullNameStr).trim().toUpperCase().split(/\s+/).filter(Boolean);
   if (parts.length === 1) {
     return { first_name: parts[0], surname: parts[0], middle_name: null };
   }

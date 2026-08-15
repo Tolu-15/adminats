@@ -69,9 +69,9 @@ export async function POST(request) {
     const record = {
       student_unique_id,
       batch_id,
-      surname: body.surname,
-      first_name: body.first_name,
-      middle_name: body.middle_name || null,
+      surname: (body.surname || '').toUpperCase().trim(),
+      first_name: (body.first_name || '').toUpperCase().trim(),
+      middle_name: body.middle_name ? body.middle_name.toUpperCase().trim() : null,
       email: body.email,
       phone: body.phone,
       date_of_birth: body.date_of_birth || null,

@@ -19,7 +19,7 @@ const EXTRA_FIELDS = [
   { key: 'trainer',               label: 'Trainer',               type: 'text' },
   { key: 'department',            label: 'Department',            type: 'text' },
   { key: 'mountain_of_influence', label: 'Mountain of Influence', type: 'text' },
-  { key: 'status',                label: 'Status (Released)',     type: 'select', options: ['', 'PASSED', 'FAILED'] },
+  { key: 'status',                label: 'Status (Released)',     type: 'select', options: ['', 'IN_PROGRESS', 'PASSED', 'FAILED', 'DROP'] },
   { key: 'comments',              label: 'Comments',              type: 'textarea' },
 ];
 
@@ -102,15 +102,17 @@ export default function ProclaimersGradeEditForm({ registrationId, initialGrades
               {saveMsg.text}
             </span>
           )}
-          {editing ? (
-            <>
-              <button className="btn btn-outline btn-sm" onClick={cancelEditing}>Cancel</button>
-              <button className="btn btn-primary btn-sm" onClick={save} disabled={saving}>
-                {saving ? 'Saving…' : '💾 Save'}
-              </button>
-            </>
-          ) : (
-            <button className="btn btn-outline btn-sm" onClick={startEditing}>✏️ Edit Grades</button>
+          {!(session?.isViewer || session?.user?.user_metadata?.role === 'viewer') && (
+            editing ? (
+              <>
+                <button className="btn btn-outline btn-sm" onClick={cancelEditing}>Cancel</button>
+                <button className="btn btn-primary btn-sm" onClick={save} disabled={saving}>
+                  {saving ? 'Saving…' : '💾 Save'}
+                </button>
+              </>
+            ) : (
+              <button className="btn btn-outline btn-sm" onClick={startEditing}>✏️ Edit Proclaimers Grades</button>
+            )
           )}
         </div>
       </div>
@@ -123,7 +125,17 @@ export default function ProclaimersGradeEditForm({ registrationId, initialGrades
               <input
                 type="number"
                 value={form[key] ?? ''}
-                onChange={(e) => setForm((p) => ({ ...p, [key]: e.target.value === '' ? '' : Number(e.target.value) }))}
+                onChange={(e) => {
+                  const val = e.target.value === '' ? '' : Number(e.target.value);
+                  setForm((p) => {
+                    const next = { ...p, [key]: val };
+                    // Auto-set IN_PROGRESS when a score is entered and status is blank
+                    if (val !== '' && val !== null && !next.status) {
+                      next.status = 'IN_PROGRESS';
+                    }
+                    return next;
+                  });
+                }}
                 style={{
                   width: '100%', padding: '4px 6px', fontSize: '1rem',
                   fontWeight: 700, textAlign: 'center',
@@ -174,7 +186,8 @@ export default function ProclaimersGradeEditForm({ registrationId, initialGrades
               <div style={{ fontSize: '0.88rem', fontWeight: 600, color: 'var(--navy)' }}>
                 {key === 'status' ? (
                   status === 'PASSED' ? <span className="grade-pill passed">PASSED</span>
-                    : status === 'FAILED' ? <span className="grade-pill failed">FAILED</span>
+                    : status === 'FAILED' || status === 'DROP' ? <span className="grade-pill failed">DROP</span>
+                    : status === 'IN_PROGRESS' ? <span className="grade-pill in-progress">IN PROGRESS</span>
                     : <span className="grade-pill pending">Pending</span>
                 ) : (
                   grades[key] || <span className="muted">—</span>

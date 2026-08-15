@@ -10,6 +10,8 @@ import ProfileRow from '../../../../components/ProfileRow';
 import MitGradeEditForm from '../../../../components/MitGradeEditForm';
 import ProclaimersGradeEditForm from '../../../../components/ProclaimersGradeEditForm';
 import PageLoader from '../../../../components/PageLoader';
+import PhotoUploader from '../../../../components/PhotoUploader';
+import { getImageUrl } from '../../../../lib/getImageUrl';
 
 const SCORE_FIELDS = [
   { key: 'attendance',   label: 'Attendance' },
@@ -27,7 +29,7 @@ const EXTRA_FIELDS = [
   { key: 'water_baptism',       label: 'Water Baptism',       type: 'select', options: ['', 'YES', 'NO'] },
   { key: 'holy_spirit_baptism', label: 'Holy Spirit Baptism', type: 'select', options: ['', 'YES', 'NO'] },
   { key: 'portal',              label: 'Portal',              type: 'text' },
-  { key: 'status',              label: 'Status',              type: 'select', options: ['', 'PASSED', 'FAILED'] },
+  { key: 'status',              label: 'Status',              type: 'select', options: ['', 'IN_PROGRESS', 'PASSED', 'FAILED', 'DROP'] },
   { key: 'covenant_deed',       label: 'Covenant Deed',       type: 'select', options: ['', 'SIGNED', 'NOT SIGNED'] },
   { key: 'id_card_collected_date', label: 'ID Card Collected Date', type: 'date' },
   { key: 'comments',            label: 'Comments',            type: 'textarea' },
@@ -55,14 +57,17 @@ export default function StudentProfile() {
   const [cardNumber, setCardNumber] = useState('');
   const [savingCard, setSavingCard] = useState(false);
 
-  // Contact info editing
-  const [editingContact, setEditingContact] = useState(false);
-  const [contactForm, setContactForm] = useState({});
-  const [savingContact, setSavingContact] = useState(false);
-  const [contactMsg, setContactMsg] = useState(null);
 
   // Active right-panel tab
   const [activeTab, setActiveTab] = useState('MEMBERSHIP');
+
+  // Full profile edit modal
+  const [fullEditOpen, setFullEditOpen] = useState(false);
+  const [fullEditForm, setFullEditForm] = useState({});
+  const [fullEditPhotoFile, setFullEditPhotoFile] = useState(null);
+  const [fullEditPhotoUrl, setFullEditPhotoUrl] = useState('');
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [profileMsg, setProfileMsg] = useState(null);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -88,13 +93,36 @@ export default function StudentProfile() {
       setMitReg(json.mitRegistration || null);
       setProcReg(json.proclaimersRegistration || null);
       setCardNumber(json.student?.card_number || '');
-      setContactForm({
-        email: json.student?.email || '',
-        phone: json.student?.phone || '',
-        home_address: json.student?.home_address || '',
-        state_of_origin: json.student?.state_of_origin || '',
-        nationality: json.student?.nationality || '',
+      // Populate full edit form
+      const s = json.student || {};
+      setFullEditForm({
+        surname: s.surname || '',
+        first_name: s.first_name || '',
+        middle_name: s.middle_name || '',
+        gender: s.gender || '',
+        date_of_birth: s.date_of_birth || '',
+        email: s.email || '',
+        phone: s.phone || '',
+        home_address: s.home_address || '',
+        state_of_origin: s.state_of_origin || '',
+        local_government: s.local_government || '',
+        nationality: s.nationality || '',
+        education: s.education || '',
+        challenges: s.challenges || '',
+        church_join_date: s.church_join_date || '',
+        next_of_kin: s.next_of_kin || '',
+        next_of_kin_relationship: s.next_of_kin_relationship || '',
+        next_of_kin_phone: s.next_of_kin_phone || '',
+        next_of_kin_address: s.next_of_kin_address || '',
+        born_again: s.born_again || '',
+        born_again_details: s.born_again_details || '',
+        baptized_water: s.baptized_water ? 'Yes' : (s.baptized_water === false ? 'No' : ''),
+        baptized_water_details: s.baptized_water_details || '',
+        baptized_holy_spirit: s.baptized_holy_spirit ? 'Yes' : (s.baptized_holy_spirit === false ? 'No' : ''),
+        baptized_holy_spirit_details: s.baptized_holy_spirit_details || '',
+        is_first_timer: s.is_first_timer === true || s.is_first_timer === 'Yes' ? 'Yes' : 'No',
       });
+      setFullEditPhotoUrl(s.photo_url || '');
     }
     setLoading(false);
   }
@@ -165,37 +193,81 @@ export default function StudentProfile() {
     }
   }
 
-  async function handleSaveContact(e) {
+  async function handleSaveFullProfile(e) {
     e.preventDefault();
-    setSavingContact(true);
-    setContactMsg(null);
+    setSavingProfile(true);
+    setProfileMsg(null);
     try {
       const { data: { session: sess } } = await supabase.auth.getSession();
       const token = sess?.access_token || session?.access_token;
+      const payload = { ...fullEditForm };
+
+      // Upload newly selected compressed photo on Submit
+      if (fullEditPhotoFile) {
+        const fd = new FormData();
+        fd.append('file', fullEditPhotoFile);
+        const uploadRes = await fetch('/api/upload-image', { method: 'POST', body: fd });
+        const uploadJson = await uploadRes.json();
+        if (!uploadRes.ok) throw new Error(uploadJson.error || 'Photo upload failed.');
+        payload.photo_url = uploadJson.publicUrl;
+      } else if (fullEditPhotoUrl) {
+        payload.photo_url = fullEditPhotoUrl;
+      }
+
       const res = await fetch(`/api/students/${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify(contactForm),
+        body: JSON.stringify(payload),
       });
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error || 'Failed to update contact info');
+      if (!res.ok) throw new Error(json.error || 'Save failed');
       setStudent(json.student);
-      setContactForm({
-        email: json.student?.email || '',
-        phone: json.student?.phone || '',
-        home_address: json.student?.home_address || '',
-        state_of_origin: json.student?.state_of_origin || '',
-        nationality: json.student?.nationality || '',
-      });
-      setEditingContact(false);
-      setContactMsg({ type: 'success', text: 'Contact info saved.' });
-      setTimeout(() => setContactMsg(null), 3000);
+      setFullEditOpen(false);
+      setProfileMsg({ type: 'success', text: 'Profile updated successfully.' });
+      setTimeout(() => setProfileMsg(null), 4000);
+      router.refresh();
     } catch (err) {
-      setContactMsg({ type: 'error', text: err.message });
+      setProfileMsg({ type: 'error', text: err.message });
     } finally {
-      setSavingContact(false);
+      setSavingProfile(false);
     }
   }
+
+  function openFullEdit() {
+    const s = student || {};
+    setFullEditForm({
+      surname: s.surname || '',
+      first_name: s.first_name || '',
+      middle_name: s.middle_name || '',
+      gender: s.gender || '',
+      date_of_birth: s.date_of_birth || '',
+      email: s.email || '',
+      phone: s.phone || '',
+      home_address: s.home_address || '',
+      state_of_origin: s.state_of_origin || '',
+      local_government: s.local_government || '',
+      nationality: s.nationality || '',
+      education: s.education || '',
+      challenges: s.challenges || '',
+      church_join_date: s.church_join_date || '',
+      next_of_kin: s.next_of_kin || '',
+      next_of_kin_relationship: s.next_of_kin_relationship || '',
+      next_of_kin_phone: s.next_of_kin_phone || '',
+      next_of_kin_address: s.next_of_kin_address || '',
+      born_again: s.born_again || '',
+      born_again_details: s.born_again_details || '',
+      baptized_water: s.baptized_water ? 'Yes' : (s.baptized_water === false ? 'No' : ''),
+      baptized_water_details: s.baptized_water_details || '',
+      baptized_holy_spirit: s.baptized_holy_spirit ? 'Yes' : (s.baptized_holy_spirit === false ? 'No' : ''),
+      baptized_holy_spirit_details: s.baptized_holy_spirit_details || '',
+      is_first_timer: s.is_first_timer === true || s.is_first_timer === 'Yes' ? 'Yes' : 'No',
+    });
+    setFullEditPhotoUrl(s.photo_url || '');
+    setFullEditPhotoFile(null);
+    setProfileMsg(null);
+    setFullEditOpen(true);
+  }
+
 
   if (session === undefined || loading) {
     return <PageLoader />;
@@ -234,8 +306,10 @@ export default function StudentProfile() {
 
   function StatusPill({ status, fallback = 'Pending' }) {
     if (!status) return <span className="grade-pill pending">{fallback}</span>;
-    const cls = status === 'PASSED' ? 'passed' : status === 'FAILED' ? 'failed' : 'pending';
-    return <span className={`grade-pill ${cls}`}>{status}</span>;
+    if (status === 'PASSED') return <span className="grade-pill passed">PASSED</span>;
+    if (status === 'FAILED' || status === 'DROP') return <span className="grade-pill failed">DROP</span>;
+    if (status === 'IN_PROGRESS') return <span className="grade-pill in-progress">IN PROGRESS</span>;
+    return <span className="grade-pill pending">{fallback}</span>;
   }
 
   return (
@@ -253,7 +327,16 @@ export default function StudentProfile() {
             )}
             <div className="admin-topbar-title">Student Profile</div>
           </div>
-          <div className="admin-topbar-right">
+          <div className="admin-topbar-right" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            {session?.isViewer ? (
+              <span className="badge" style={{ background: 'rgba(59,130,246,0.12)', color: '#1d4ed8', border: '1px solid rgba(59,130,246,0.3)', padding: '4px 10px', fontSize: '0.75rem' }}>
+                👁️ Viewer Account (Read Only)
+              </span>
+            ) : (
+              <span className="badge badge-gold" style={{ padding: '4px 10px', fontSize: '0.75rem' }}>
+                ⚡ Super Admin
+              </span>
+            )}
             <span className="muted text-sm">{session?.user?.email}</span>
           </div>
         </div>
@@ -314,48 +397,53 @@ export default function StudentProfile() {
 
           {/* ── MAIN GRID ── */}
           <div style={{ display: 'grid', gridTemplateColumns: '340px 1fr', gap: 20, alignItems: 'start' }}>
-
-            {/* ── LEFT: BIODATA ── */}
             <div className="card">
-              {/* Avatar + name */}
-              <div style={{ display: 'flex', gap: 14, alignItems: 'center', marginBottom: 20 }}>
+              {/* Avatar + name + Edit button */}
+              <div style={{ display: 'flex', gap: 14, alignItems: 'center', marginBottom: 16 }}>
                 {student.photo_url ? (
-                  <img src={student.photo_url} alt="" style={{ width: 72, height: 72, borderRadius: '50%', objectFit: 'cover', border: '3px solid var(--gold)', flexShrink: 0 }} />
+                  <img src={getImageUrl(student.photo_url)} alt="" style={{ width: 72, height: 72, borderRadius: '50%', objectFit: 'cover', border: '3px solid var(--gold)', flexShrink: 0 }} />
                 ) : (
                   <div style={{ width: 72, height: 72, borderRadius: '50%', flexShrink: 0, background: 'linear-gradient(135deg,#E4C875,#B8862E)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 800, fontSize: '1.3rem' }}>
                     {student.first_name?.[0]}{student.surname?.[0]}
                   </div>
                 )}
-                <div>
+                <div style={{ flex: 1, minWidth: 0 }}>
                   <h1 style={{ fontSize: '1.1rem', margin: 0, color: 'var(--navy)' }}>{fullName}</h1>
                   <span className="badge badge-gold" style={{ marginTop: 4, fontSize: '0.75rem' }}>{student.student_unique_id}</span>
                   <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginTop: 6 }}>
                     {isFirstTimer && (
-                      <span style={{
-                        background: 'rgba(59,130,246,0.12)', color: '#1d4ed8',
-                        border: '1px solid rgba(59,130,246,0.3)',
-                        borderRadius: 6, padding: '2px 8px', fontSize: '0.68rem', fontWeight: 700
-                      }}>⭐ First Timer</span>
+                      <span style={{ background: 'rgba(59,130,246,0.12)', color: '#1d4ed8', border: '1px solid rgba(59,130,246,0.3)', borderRadius: 6, padding: '2px 8px', fontSize: '0.68rem', fontWeight: 700 }}>⭐ First Timer</span>
                     )}
                     {isMemRetake && (
-                      <span style={{
-                        background: 'rgba(245,158,11,0.12)', color: '#92400e',
-                        border: '1px solid rgba(245,158,11,0.4)',
-                        borderRadius: 6, padding: '2px 8px', fontSize: '0.68rem', fontWeight: 700
-                      }}>🔄 Membership Retake</span>
+                      <span style={{ background: 'rgba(245,158,11,0.12)', color: '#92400e', border: '1px solid rgba(245,158,11,0.4)', borderRadius: 6, padding: '2px 8px', fontSize: '0.68rem', fontWeight: 700 }}>🔄 Membership Retake</span>
                     )}
                     {isMitRetake && (
-                      <span style={{
-                        background: 'rgba(245,158,11,0.12)', color: '#92400e',
-                        border: '1px solid rgba(245,158,11,0.4)',
-                        borderRadius: 6, padding: '2px 8px', fontSize: '0.68rem', fontWeight: 700
-                      }}>🔄 MIT Retake</span>
+                      <span style={{ background: 'rgba(245,158,11,0.12)', color: '#92400e', border: '1px solid rgba(245,158,11,0.4)', borderRadius: 6, padding: '2px 8px', fontSize: '0.68rem', fontWeight: 700 }}>🔄 MIT Retake</span>
                     )}
                   </div>
                 </div>
               </div>
 
-              <div className="section-title">Identity & Card</div>
+              {/* Edit Full Profile button (Admin Only) */}
+              {!session?.isViewer && (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+                  {profileMsg && (
+                    <span style={{ fontSize: '0.78rem', color: profileMsg.type === 'success' ? '#16a34a' : 'var(--danger)', display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <i className={`fa-solid ${profileMsg.type === 'success' ? 'fa-circle-check' : 'fa-circle-exclamation'}`} />
+                      {profileMsg.text}
+                    </span>
+                  )}
+                  <button
+                    className="btn btn-outline btn-sm"
+                    onClick={openFullEdit}
+                    style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                  >
+                    <i className="fa-solid fa-pen-to-square" /> Edit Full Profile
+                  </button>
+                </div>
+              )}
+
+              <div className="section-title">Identity &amp; Card</div>
               <div className="profile-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div>
                   <span className="profile-row-label">Card Number: </span>
@@ -371,75 +459,20 @@ export default function StudentProfile() {
                     </span>
                   )}
                 </div>
-                {!editingCard && (
+                {!session?.isViewer && !editingCard && (
                   <button className="btn btn-ghost btn-sm" onClick={() => setEditingCard(true)} style={{ fontSize: '0.75rem' }}>
                     ✏️ {student.card_number ? 'Edit' : 'Assign'}
                   </button>
                 )}
               </div>
 
-              {/* ── CONTACT INFORMATION ── */}
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 20, marginBottom: 4 }}>
-                <div className="section-title" style={{ margin: 0 }}>Contact Information</div>
-                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                  {contactMsg && (
-                    <span style={{ fontSize: '0.75rem', color: contactMsg.type === 'success' ? '#16a34a' : '#dc2626' }}>
-                      {contactMsg.text}
-                    </span>
-                  )}
-                  {!editingContact && (
-                    <button
-                      className="btn btn-ghost btn-sm"
-                      onClick={() => { setEditingContact(true); setContactMsg(null); }}
-                      style={{ fontSize: '0.75rem' }}
-                    >
-                      ✏️ Edit
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              {editingContact ? (
-                <form onSubmit={handleSaveContact} style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 8 }}>
-                  {[
-                    { key: 'email', label: 'Email', type: 'email' },
-                    { key: 'phone', label: 'Phone', type: 'text' },
-                    { key: 'home_address', label: 'Home Address', type: 'text' },
-                    { key: 'state_of_origin', label: 'State of Origin', type: 'text' },
-                    { key: 'nationality', label: 'Nationality', type: 'text' },
-                  ].map(({ key, label, type }) => (
-                    <div key={key}>
-                      <div style={{ fontSize: '0.72rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5, color: 'var(--muted)', marginBottom: 3 }}>{label}</div>
-                      <input
-                        type={type}
-                        value={contactForm[key]}
-                        onChange={(e) => setContactForm((p) => ({ ...p, [key]: e.target.value }))}
-                        style={{ width: '100%', padding: '6px 8px', fontSize: '0.85rem', border: '1.5px solid var(--gold)', borderRadius: 6, background: 'var(--paper)', boxSizing: 'border-box' }}
-                      />
-                    </div>
-                  ))}
-                  <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
-                    <button className="btn btn-primary btn-sm" disabled={savingContact}>
-                      {savingContact ? 'Saving…' : '💾 Save Contact'}
-                    </button>
-                    <button
-                      type="button"
-                      className="btn btn-outline btn-sm"
-                      onClick={() => { setEditingContact(false); setContactMsg(null); }}
-                    >
-                      ✕ Cancel
-                    </button>
-                  </div>
-                </form>
-              ) : (
-                <>
-                  <ProfileRow label="Email" value={student.email} />
-                  <ProfileRow label="Phone" value={student.phone} />
-                  <ProfileRow label="Home Address" value={student.home_address} />
-                  <ProfileRow label="State of Origin" value={student.state_of_origin} />
-                  <ProfileRow label="Nationality" value={student.nationality} />
-                </>
-              )}
+              <div className="section-title">Contact Information</div>
+              <ProfileRow label="Email" value={student.email} />
+              <ProfileRow label="Phone" value={student.phone} />
+              <ProfileRow label="Home Address" value={student.home_address} />
+              <ProfileRow label="State of Origin" value={student.state_of_origin} />
+              <ProfileRow label="Local Government (LGA)" value={student.local_government} />
+              <ProfileRow label="Nationality" value={student.nationality} />
 
               <div className="section-title">Personal Details</div>
               <ProfileRow label="First Timer" value={isFirstTimer ? '⭐ Yes — First Timer' : 'No — Regular Member'} />
@@ -451,7 +484,14 @@ export default function StudentProfile() {
 
               <div className="section-title">Next of Kin</div>
               <ProfileRow label="Name" value={student.next_of_kin} />
-              <ProfileRow label="Address" value={student.next_of_kin_address} />
+              <ProfileRow label="Relationship" value={
+                student.next_of_kin_relationship ||
+                (student.next_of_kin_address?.includes('Rel: ') ? student.next_of_kin_address.split('Rel: ')[1]?.split(' | ')[0] : null)
+              } />
+              <ProfileRow label="Phone Number" value={
+                student.next_of_kin_phone ||
+                (student.next_of_kin_address?.includes('Phone: ') ? student.next_of_kin_address.split('Phone: ')[1] : null)
+              } />
 
               <div className="section-title">Spiritual Journey</div>
               <ProfileRow label="Born Again" value={student.born_again} />
@@ -501,15 +541,17 @@ export default function StudentProfile() {
                           {saveMsg.text}
                         </span>
                       )}
-                      {editingGrades ? (
-                        <>
-                          <button className="btn btn-outline btn-sm" onClick={cancelEditing}>Cancel</button>
-                          <button className="btn btn-primary btn-sm" onClick={saveGrades} disabled={savingGrades}>
-                            {savingGrades ? 'Saving…' : '💾 Save'}
-                          </button>
-                        </>
-                      ) : (
-                        <button className="btn btn-outline btn-sm" onClick={startEditing}>✏️ Edit Grades</button>
+                      {!session?.isViewer && (
+                        editingGrades ? (
+                          <>
+                            <button className="btn btn-outline btn-sm" onClick={cancelEditing}>Cancel</button>
+                            <button className="btn btn-primary btn-sm" onClick={saveGrades} disabled={savingGrades}>
+                              {savingGrades ? 'Saving…' : '💾 Save'}
+                            </button>
+                          </>
+                        ) : (
+                          <button className="btn btn-outline btn-sm" onClick={startEditing}>✏️ Edit Grades</button>
+                        )
                       )}
                     </div>
                   </div>
@@ -523,7 +565,17 @@ export default function StudentProfile() {
                           <input
                             type="number"
                             value={gradeForm[key] ?? ''}
-                            onChange={(e) => setGradeForm((p) => ({ ...p, [key]: e.target.value === '' ? '' : Number(e.target.value) }))}
+                            onChange={(e) => {
+                              const val = e.target.value === '' ? '' : Number(e.target.value);
+                              setGradeForm((p) => {
+                                const next = { ...p, [key]: val };
+                                // Auto-set IN_PROGRESS when a score is entered and status is blank
+                                if (val !== '' && val !== null && !next.status) {
+                                  next.status = 'IN_PROGRESS';
+                                }
+                                return next;
+                              });
+                            }}
                             style={{ width: '100%', padding: '4px 6px', fontSize: '1rem', fontWeight: 700, textAlign: 'center', border: '1.5px solid var(--gold)', borderRadius: 6, background: 'var(--paper)' }}
                           />
                         ) : (
@@ -650,6 +702,231 @@ export default function StudentProfile() {
 
         </div>
       </div>
+
+      {/* ── FULL PROFILE EDIT MODAL ── */}
+      {fullEditOpen && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 1000,
+          background: 'rgba(10,20,40,0.55)', backdropFilter: 'blur(4px)',
+          display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
+          padding: '24px 16px', overflowY: 'auto',
+        }}
+          onClick={(e) => { if (e.target === e.currentTarget) setFullEditOpen(false); }}
+        >
+          <div style={{
+            background: '#fff', borderRadius: 16, width: '100%', maxWidth: 720,
+            boxShadow: '0 24px 60px rgba(0,0,0,0.35)',
+            overflow: 'hidden',
+          }}>
+            {/* Modal Header */}
+            <div style={{
+              padding: '20px 28px', borderBottom: '1px solid var(--line)',
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              background: 'var(--navy)',
+            }}>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: '1rem', color: '#fff' }}>
+                  <i className="fa-solid fa-pen-to-square" style={{ marginRight: 8, color: 'var(--gold)' }} />
+                  Edit Full Profile
+                </div>
+                <div style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.6)', marginTop: 2 }}>
+                  {fullName} · {student.student_unique_id}
+                </div>
+              </div>
+              <button
+                onClick={() => setFullEditOpen(false)}
+                style={{ background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: 8, padding: '8px 12px', color: '#fff', cursor: 'pointer', fontSize: '0.88rem' }}
+              >
+                ✕ Close
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <form onSubmit={handleSaveFullProfile} style={{ padding: 28 }}>
+              {profileMsg?.type === 'error' && (
+                <div className="error-box" style={{ marginBottom: 20 }}>{profileMsg.text}</div>
+              )}
+
+              {/* Photo */}
+              <div className="section-title" style={{ marginTop: 0 }}>Profile Photo</div>
+              <PhotoUploader
+                currentUrl={fullEditPhotoUrl}
+                onPhotoSelected={(file) => setFullEditPhotoFile(file)}
+                onUploaded={(url) => setFullEditPhotoUrl(url)}
+                hint="JPG, JPEG, PNG, WebP · Max 5 MB · Photo will upload when you save."
+              />
+
+              {/* Personal Details */}
+              <div className="section-title">Personal Details</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 4 }}>
+                {[
+                  { key: 'surname', label: 'Surname', type: 'text' },
+                  { key: 'first_name', label: 'First Name', type: 'text' },
+                  { key: 'middle_name', label: 'Middle Name', type: 'text' },
+                  { key: 'date_of_birth', label: 'Date of Birth', type: 'date' },
+                ].map(({ key, label, type }) => (
+                  <div key={key} className="field" style={{ marginBottom: 0 }}>
+                    <label>{label}</label>
+                    <input
+                      type={type}
+                      value={fullEditForm[key] || ''}
+                      onChange={(e) => setFullEditForm((p) => ({ ...p, [key]: e.target.value }))}
+                    />
+                  </div>
+                ))}
+              </div>
+              <div className="field" style={{ marginTop: 14 }}>
+                <label>Gender</label>
+                <div className="radio-row">
+                  {['Male', 'Female'].map((g) => (
+                    <label key={g}>
+                      <input type="radio" name="fe_gender" checked={fullEditForm.gender === g} onChange={() => setFullEditForm((p) => ({ ...p, gender: g }))} />
+                      {g}
+                    </label>
+                  ))}
+                </div>
+              </div>
+              <div className="field">
+                <label>First Timer?</label>
+                <div className="radio-row">
+                  {['Yes', 'No'].map((v) => (
+                    <label key={v}>
+                      <input type="radio" name="fe_first_timer" checked={fullEditForm.is_first_timer === v} onChange={() => setFullEditForm((p) => ({ ...p, is_first_timer: v }))} />
+                      {v === 'Yes' ? 'Yes — First Timer' : 'No — Regular Member'}
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              {/* Contact */}
+              <div className="section-title">Contact Information</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+                {[
+                  { key: 'email', label: 'Email', type: 'email' },
+                  { key: 'phone', label: 'Phone', type: 'text' },
+                  { key: 'state_of_origin', label: 'State of Origin', type: 'text' },
+                  { key: 'local_government', label: 'Local Government (LGA)', type: 'text' },
+                  { key: 'nationality', label: 'Nationality', type: 'text' },
+                ].map(({ key, label, type }) => (
+                  <div key={key} className="field" style={{ marginBottom: 0 }}>
+                    <label>{label}</label>
+                    <input type={type} value={fullEditForm[key] || ''} onChange={(e) => setFullEditForm((p) => ({ ...p, [key]: e.target.value }))} />
+                  </div>
+                ))}
+              </div>
+              <div className="field" style={{ marginTop: 14 }}>
+                <label>Home Address</label>
+                <textarea value={fullEditForm.home_address || ''} onChange={(e) => setFullEditForm((p) => ({ ...p, home_address: e.target.value }))} style={{ minHeight: 60 }} />
+              </div>
+
+              {/* Next of Kin */}
+              <div className="section-title">Next of Kin</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+                <div className="field" style={{ marginBottom: 0 }}>
+                  <label>Next of Kin Name</label>
+                  <input type="text" value={fullEditForm.next_of_kin || ''} onChange={(e) => setFullEditForm((p) => ({ ...p, next_of_kin: e.target.value }))} />
+                </div>
+                <div className="field" style={{ marginBottom: 0 }}>
+                  <label>Relationship</label>
+                  <input type="text" placeholder="e.g. Spouse, Parent, Sibling" value={fullEditForm.next_of_kin_relationship || ''} onChange={(e) => setFullEditForm((p) => ({ ...p, next_of_kin_relationship: e.target.value }))} />
+                </div>
+              </div>
+              <div className="field" style={{ marginTop: 14 }}>
+                <label>Next of Kin Phone Number</label>
+                <input type="tel" value={fullEditForm.next_of_kin_phone || ''} onChange={(e) => setFullEditForm((p) => ({ ...p, next_of_kin_phone: e.target.value }))} />
+              </div>
+
+              {/* Education */}
+              <div className="section-title">Education &amp; Other</div>
+              <div className="field">
+                <label>Educational Background</label>
+                <select value={fullEditForm.education || ''} onChange={(e) => setFullEditForm((p) => ({ ...p, education: e.target.value }))}>
+                  <option value="">Select…</option>
+                  <option>Basic School Leaving Certificate</option>
+                  <option>Secondary School Leaving Certificate</option>
+                  <option>Tertiary Education Degree and above</option>
+                </select>
+              </div>
+              <div className="field">
+                <label>When did they join Citadel?</label>
+                <input type="text" placeholder="e.g. January 2020" value={fullEditForm.church_join_date || ''} onChange={(e) => setFullEditForm((p) => ({ ...p, church_join_date: e.target.value }))} />
+              </div>
+              <div className="field">
+                <label>Challenges to participation</label>
+                <textarea value={fullEditForm.challenges || ''} onChange={(e) => setFullEditForm((p) => ({ ...p, challenges: e.target.value }))} style={{ minHeight: 50 }} />
+              </div>
+
+              {/* Spiritual */}
+              <div className="section-title">Spiritual Background</div>
+              <div className="field">
+                <label>Born Again?</label>
+                <div className="radio-row">
+                  {['Yes', 'No', 'Maybe'].map((v) => (
+                    <label key={v}>
+                      <input type="radio" name="fe_born_again" checked={fullEditForm.born_again === v} onChange={() => setFullEditForm((p) => ({ ...p, born_again: v }))} />
+                      {v}
+                    </label>
+                  ))}
+                </div>
+              </div>
+              {fullEditForm.born_again === 'Yes' && (
+                <div className="field">
+                  <label>If Yes, When and Where?</label>
+                  <input type="text" value={fullEditForm.born_again_details || ''} onChange={(e) => setFullEditForm((p) => ({ ...p, born_again_details: e.target.value }))} />
+                </div>
+              )}
+              <div className="field">
+                <label>Water Baptism (immersion)?</label>
+                <div className="radio-row">
+                  {['Yes', 'No'].map((v) => (
+                    <label key={v}>
+                      <input type="radio" name="fe_bap_water" checked={fullEditForm.baptized_water === v} onChange={() => setFullEditForm((p) => ({ ...p, baptized_water: v }))} />
+                      {v}
+                    </label>
+                  ))}
+                </div>
+              </div>
+              {fullEditForm.baptized_water === 'Yes' && (
+                <div className="field">
+                  <label>If Yes, When and Where?</label>
+                  <input type="text" value={fullEditForm.baptized_water_details || ''} onChange={(e) => setFullEditForm((p) => ({ ...p, baptized_water_details: e.target.value }))} />
+                </div>
+              )}
+              <div className="field">
+                <label>Holy Spirit Baptism?</label>
+                <div className="radio-row">
+                  {['Yes', 'No'].map((v) => (
+                    <label key={v}>
+                      <input type="radio" name="fe_bap_hs" checked={fullEditForm.baptized_holy_spirit === v} onChange={() => setFullEditForm((p) => ({ ...p, baptized_holy_spirit: v }))} />
+                      {v}
+                    </label>
+                  ))}
+                </div>
+              </div>
+              {fullEditForm.baptized_holy_spirit === 'Yes' && (
+                <div className="field">
+                  <label>If Yes, When and Where?</label>
+                  <input type="text" value={fullEditForm.baptized_holy_spirit_details || ''} onChange={(e) => setFullEditForm((p) => ({ ...p, baptized_holy_spirit_details: e.target.value }))} />
+                </div>
+              )}
+
+              {/* Footer */}
+              <div style={{ display: 'flex', gap: 10, paddingTop: 8, borderTop: '1px solid var(--line)', marginTop: 20 }}>
+                <button type="submit" className="btn btn-primary" disabled={savingProfile} style={{ flex: 1, padding: '13px' }}>
+                  {savingProfile ? (
+                    <><i className="fa-solid fa-spinner fa-spin" /> Saving…</>
+                  ) : (
+                    <><i className="fa-solid fa-floppy-disk" /> Save Full Profile</>
+                  )}
+                </button>
+                <button type="button" className="btn btn-outline" onClick={() => setFullEditOpen(false)} style={{ padding: '13px 20px' }}>
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

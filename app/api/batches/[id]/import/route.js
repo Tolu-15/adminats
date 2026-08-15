@@ -64,7 +64,7 @@ function generateUniqueEmail(firstName, surname) {
   return `${cleanFirst}.${cleanSurname}.${randomStr}@placeholder.com`;
 }
 
-async function generateUniqueStudentId(batchCode, preferredId = null) {
+async function generateUniqueStudentId(batchId, batchCode, preferredId = null) {
   if (preferredId) {
     const clean = String(preferredId).trim();
     if (clean.length >= 3) {
@@ -79,35 +79,29 @@ async function generateUniqueStudentId(batchCode, preferredId = null) {
     }
   }
 
-  for (let attempt = 0; attempt < 5; attempt++) {
-    const { data: generatedId } = await supabaseAdmin.rpc('generate_student_id', {
-      p_batch_code: batchCode,
-    });
-    const candidate = generatedId || `ATS-${batchCode}-${Math.floor(1000 + Math.random() * 9000)}`;
+  const { data: existingStudents } = await supabaseAdmin
+    .from('students')
+    .select('student_unique_id')
+    .eq('batch_id', batchId);
 
-    const { data } = await supabaseAdmin
-      .from('students')
-      .select('id')
-      .eq('student_unique_id', candidate)
-      .limit(1);
-
-    if (!data || data.length === 0) {
-      return candidate;
+  let maxSeq = 0;
+  if (existingStudents && existingStudents.length > 0) {
+    for (const s of existingStudents) {
+      if (s.student_unique_id) {
+        const parts = s.student_unique_id.split('-');
+        const lastNum = parseInt(parts[parts.length - 1], 10);
+        if (!isNaN(lastNum) && lastNum > maxSeq) {
+          maxSeq = lastNum;
+        }
+      }
     }
   }
 
-  while (true) {
-    const randomSuffix = Math.random().toString(36).substring(2, 7).toUpperCase();
-    const candidate = `ATS-${batchCode}-${randomSuffix}`;
-    const { data } = await supabaseAdmin
-      .from('students')
-      .select('id')
-      .eq('student_unique_id', candidate)
-      .limit(1);
-    if (!data || data.length === 0) {
-      return candidate;
-    }
-  }
+  const nextSeq = maxSeq + 1;
+  const seqStr = String(nextSeq).padStart(4, '0');
+  const numMatch = (batchCode || '').match(/\d+/);
+  const batchTag = numMatch ? numMatch[0] : (batchCode || 'ATS').replace(/[^a-zA-Z0-9]/g, '').slice(0, 6).toUpperCase();
+  return `ATS-${batchTag}-${seqStr}`;
 }
 
 export async function POST(request, { params }) {
@@ -277,7 +271,7 @@ export async function POST(request, { params }) {
 
           while (!insertSuccess && attempts < 5) {
             attempts++;
-            const studentUniqueId = await generateUniqueStudentId(batch.batch_code, preferredId);
+            const studentUniqueId = await generateUniqueStudentId(batchId, batch.batch_code, preferredId);
             const studentEmail = email || generateUniqueEmail(first_name, surname);
 
             const newRecord = {
@@ -377,7 +371,7 @@ export async function POST(request, { params }) {
             let attempts = 0;
             while (!insertSuccess && attempts < 5) {
               attempts++;
-              const studentUniqueId = await generateUniqueStudentId(batch.batch_code);
+              const studentUniqueId = await generateUniqueStudentId(batchId, batch.batch_code);
               const { data: created, error: createErr } = await supabaseAdmin
                 .from('students')
                 .insert({
@@ -491,7 +485,7 @@ export async function POST(request, { params }) {
           let attempts = 0;
           while (!insertSuccess && attempts < 5) {
             attempts++;
-            const studentUniqueId = await generateUniqueStudentId(batch.batch_code);
+            const studentUniqueId = await generateUniqueStudentId(batchId, batch.batch_code);
             const { data: created, error: createErr } = await supabaseAdmin
               .from('students')
               .insert({
@@ -634,7 +628,7 @@ export async function POST(request, { params }) {
           let attempts = 0;
           while (!insertSuccess && attempts < 5) {
             attempts++;
-            const studentUniqueId = await generateUniqueStudentId(batch.batch_code);
+            const studentUniqueId = await generateUniqueStudentId(batchId, batch.batch_code);
             const { data: created, error: createErr } = await supabaseAdmin
               .from('students')
               .insert({

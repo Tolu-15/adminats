@@ -6,11 +6,12 @@ import { supabase } from '../../../lib/supabaseClient';
 import Logo from '../../../components/Logo';
 import RegistrationForm from '../../../components/RegistrationForm';
 import Toast from '../../../components/Toast';
+import { getImageUrl } from '../../../lib/getImageUrl';
 
 const initialMemForm = {
   surname: '', first_name: '', middle_name: '', email: '', phone: '',
   date_of_birth: '', gender: '', is_first_timer: 'No', home_address: '', next_of_kin: '',
-  next_of_kin_address: '', state_of_origin: '', nationality: '', education: '',
+  next_of_kin_relationship: '', next_of_kin_phone: '', state_of_origin: '', local_government: '', nationality: '', education: '',
   born_again: '', born_again_details: '', baptized_water: '', baptized_water_details: '',
   baptized_holy_spirit: '', baptized_holy_spirit_details: '', church_join_date: '', challenges: '',
 };
@@ -27,6 +28,8 @@ export default function RegisterPage() {
   // 'new' | 'retake'
   const [memMode, setMemMode] = useState('new');
   const [memForm, setMemForm] = useState(initialMemForm);
+  const [memPhotoFile, setMemPhotoFile] = useState(null); // compressed photo file to upload on submit
+  const [memPhotoUrl, setMemPhotoUrl] = useState('');  // uploaded photo URL
   const [memSubmitting, setMemSubmitting] = useState(false);
   const [memError, setMemError] = useState('');
   const [memToast, setMemToast] = useState('');
@@ -106,6 +109,7 @@ export default function RegisterPage() {
     setRetakeError('');
     setRetakeResult(null);
     setMemForm(initialMemForm);
+    setMemPhotoUrl('');
   }
 
   // --- MEMBERSHIP NEW STUDENT HANDLERS ---
@@ -142,10 +146,29 @@ export default function RegisterPage() {
 
     setMemSubmitting(true);
     try {
+      let finalPhotoUrl = memPhotoUrl || null;
+
+      // Upload compressed photo ONLY NOW when student clicks submit
+      if (memPhotoFile) {
+        const fd = new FormData();
+        fd.append('file', memPhotoFile);
+
+        const uploadRes = await fetch('/api/upload-image', {
+          method: 'POST',
+          body: fd,
+        });
+
+        const uploadJson = await uploadRes.json();
+        if (!uploadRes.ok) {
+          throw new Error(uploadJson.error || 'Photo upload failed. Please try again.');
+        }
+        finalPhotoUrl = uploadJson.publicUrl;
+      }
+
       const res = await fetch('/api/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...memForm, batch_id: batch.id }),
+        body: JSON.stringify({ ...memForm, batch_id: batch.id, photo_url: finalPhotoUrl }),
       });
 
       const json = await res.json();
@@ -319,7 +342,7 @@ export default function RegisterPage() {
         <div className="reg-header" style={{ marginBottom: 24 }}>
           <Logo size={150} style={{ margin: '0 auto 16px', borderRadius: '20px', display: 'block', filter: 'drop-shadow(0 10px 20px rgba(0,0,0,0.15))' }} />
           <h1 style={{ fontSize: '1.75rem', color: 'var(--navy)', margin: '0 0 6px' }}>{batch?.batch_name}</h1>
-          <p className="muted text-sm" style={{ marginBottom: 16 }}>Batch #{batch?.batch_code} · Apostolic Training School</p>
+          <p className="muted text-sm" style={{ marginBottom: 16 }}>Apostolic Training School</p>
 
           {/* --- PROGRAMME TYPE DROPDOWN SELECTOR --- */}
           <div style={{
@@ -423,6 +446,9 @@ export default function RegisterPage() {
                     onSubmit={handleMemSubmit}
                     submitting={memSubmitting}
                     error={memError}
+                    photoUrl={memPhotoUrl}
+                    onPhotoSelected={(file) => setMemPhotoFile(file)}
+                    onPhotoUploaded={(url) => setMemPhotoUrl(url)}
                   />
                 )}
               </>
@@ -539,7 +565,7 @@ export default function RegisterPage() {
                         Confirming re-enrolment into:
                       </div>
                       <div style={{ fontWeight: 700, color: 'var(--gold)', fontSize: '1rem' }}>
-                        {batch?.batch_name} (Batch #{batch?.batch_code})
+                        {batch?.batch_name}
                       </div>
                       <div className="muted text-sm" style={{ marginTop: 4 }}>
                         Your existing personal details will carry over. Your grade record will be reset for this new attempt.
@@ -693,7 +719,7 @@ export default function RegisterPage() {
                   display: 'flex', gap: 14, alignItems: 'center'
                 }}>
                   {foundStudent.photo_url ? (
-                    <img src={foundStudent.photo_url} alt="Photo"
+                    <img src={getImageUrl(foundStudent.photo_url)} alt="Photo"
                       style={{ width: 64, height: 64, borderRadius: '50%', objectFit: 'cover', flexShrink: 0, border: '2px solid var(--gold)' }} />
                   ) : (
                     <div style={{

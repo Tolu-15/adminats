@@ -1,9 +1,22 @@
+'use client';
+
+import PhotoUploader from './PhotoUploader';
+
 export default function RegistrationForm({
-  form, update, onSubmit, submitting, error,
+  form, update, onSubmit, submitting, error, onPhotoSelected, onPhotoUploaded, photoUrl,
 }) {
   return (
     <form onSubmit={onSubmit}>
       {error && <div className="error-box">{error}</div>}
+
+      {/* ── PHOTO ── */}
+      <div className="section-title">Profile Photo</div>
+      <PhotoUploader
+        currentUrl={photoUrl || null}
+        onPhotoSelected={onPhotoSelected}
+        onUploaded={onPhotoUploaded}
+        hint="JPG, JPEG, PNG, WebP · Max 5 MB · Photo will upload when you submit registration."
+      />
 
       <div className="section-title">Personal Details</div>
       <div className="field">
@@ -63,16 +76,24 @@ export default function RegistrationForm({
         <textarea value={form.home_address} onChange={(e) => update('home_address', e.target.value)} />
       </div>
       <div className="field">
-        <label>Next of Kin</label>
+        <label>Next of Kin Name</label>
         <input type="text" value={form.next_of_kin} onChange={(e) => update('next_of_kin', e.target.value)} />
       </div>
       <div className="field">
-        <label>Address of Next of Kin</label>
-        <textarea value={form.next_of_kin_address} onChange={(e) => update('next_of_kin_address', e.target.value)} />
+        <label>Next of Kin Relationship</label>
+        <input type="text" placeholder="e.g. Spouse, Parent, Sibling, Relative" value={form.next_of_kin_relationship} onChange={(e) => update('next_of_kin_relationship', e.target.value)} />
+      </div>
+      <div className="field">
+        <label>Next of Kin Phone Number</label>
+        <input type="tel" value={form.next_of_kin_phone} onChange={(e) => update('next_of_kin_phone', e.target.value)} />
       </div>
       <div className="field">
         <label>State of Origin</label>
         <input type="text" value={form.state_of_origin} onChange={(e) => update('state_of_origin', e.target.value)} />
+      </div>
+      <div className="field">
+        <label>Local Government of Home Town (LGA)</label>
+        <input type="text" placeholder="e.g. Ikeja, Abeokuta South, etc." value={form.local_government} onChange={(e) => update('local_government', e.target.value)} />
       </div>
       <div className="field">
         <label>Nationality</label>

@@ -16,7 +16,7 @@ const FIELDS = [
   { key: 'water_baptism', label: 'Water Baptism', type: 'select', options: ['', 'YES', 'NO'] },
   { key: 'holy_spirit_baptism', label: 'Holy Spirit Baptism', type: 'select', options: ['', 'YES', 'NO'] },
   { key: 'portal', label: 'Portal', type: 'text', placeholder: 'Portal status' },
-  { key: 'status', label: 'Status', type: 'select', options: ['', 'PASSED', 'FAILED'] },
+  { key: 'status', label: 'Status', type: 'select', options: ['', 'IN_PROGRESS', 'PASSED', 'FAILED', 'DROP'] },
   { key: 'comments', label: 'Comments', type: 'textarea', placeholder: 'Any comments…' },
   { key: 'covenant_deed', label: 'Covenant Deed', type: 'select', options: ['', 'SIGNED', 'NOT SIGNED'] },
   { key: 'id_card_collected_date', label: 'ID Card Collected Date', type: 'date', placeholder: 'YYYY-MM-DD' },
@@ -34,8 +34,17 @@ export default function GradeEditForm({ studentId, initialGrades = {}, onSaved }
     }
   }, [initialGrades]);
 
+  const SCORE_KEYS = new Set(['attendance', 'test', 'assignment', 'assessment', 'presentation', 'exam', 'final_grades']);
+
   function handleChange(key, val) {
-    setForm((prev) => ({ ...prev, [key]: val }));
+    setForm((prev) => {
+      const next = { ...prev, [key]: val };
+      // Auto-set IN_PROGRESS when a score is entered and status is still blank
+      if (SCORE_KEYS.has(key) && val !== '' && val !== null && !next.status) {
+        next.status = 'IN_PROGRESS';
+      }
+      return next;
+    });
   }
 
   async function handleSubmit(e) {

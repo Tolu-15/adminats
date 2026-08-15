@@ -1,7 +1,5 @@
 export default function CreateBatchForm({
-  batchCode, setBatchCode,
   batchName, setBatchName,
-  programmeType, setProgrammeType,
   onSubmit, error,
 }) {
   return (
@@ -13,15 +11,16 @@ export default function CreateBatchForm({
         </div>
       )}
       <form onSubmit={onSubmit}>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
-          <div className="field" style={{ marginBottom: 0 }}>
-            <label>Batch Code</label>
-            <input type="text" placeholder="e.g. 056" value={batchCode} onChange={(e) => setBatchCode(e.target.value)} />
-          </div>
-          <div className="field" style={{ marginBottom: 0 }}>
-            <label>Batch Name</label>
-            <input type="text" placeholder="e.g. Batch 056" value={batchName} onChange={(e) => setBatchName(e.target.value)} />
-          </div>
+        <div className="field" style={{ marginBottom: 16 }}>
+          <label style={{ fontWeight: 600, color: 'var(--navy)' }}>Batch Name *</label>
+          <input
+            type="text"
+            placeholder="e.g. Batch 056"
+            value={batchName}
+            onChange={(e) => setBatchName(e.target.value)}
+            required
+            autoFocus
+          />
         </div>
 
         <button className="btn btn-primary" style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>

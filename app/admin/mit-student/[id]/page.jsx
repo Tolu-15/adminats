@@ -8,6 +8,7 @@ import { useAdminGuard } from '../../../../lib/useAdminGuard';
 import Sidebar from '../../../../components/Sidebar';
 import MitGradeEditForm from '../../../../components/MitGradeEditForm';
 import PageLoader from '../../../../components/PageLoader';
+import { getImageUrl } from '../../../../lib/getImageUrl';
 
 export default function MitStudentDetail() {
   const session = useAdminGuard();
@@ -72,7 +73,7 @@ export default function MitStudentDetail() {
             <div className="card">
               <div style={{ textAlign: 'center', marginBottom: 20 }}>
                 {s?.photo_url ? (
-                  <img src={s.photo_url} alt="Photo" style={{
+                  <img src={getImageUrl(s.photo_url)} alt="Photo" style={{
                     width: 100, height: 100, borderRadius: '50%', objectFit: 'cover',
                     border: '3px solid var(--gold)', margin: '0 auto 12px',
                   }} />

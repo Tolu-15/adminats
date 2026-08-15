@@ -736,6 +736,11 @@ textarea:focus {
   color: var(--muted);
 }
 
+.grade-pill.in-progress {
+  background: #FEF3C7;
+  color: #B45309;
+}
+
 /* ============================================================
    PROFILE / SECTION TITLES
    ============================================================ */

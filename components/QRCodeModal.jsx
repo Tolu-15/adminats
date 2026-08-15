@@ -73,9 +73,6 @@ export default function QRCodeModal({ batch, baseUrl, onClose }) {
           <h2 style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--navy)', margin: '4px 0 2px' }}>
             {batch.batch_name}
           </h2>
-          <p className="muted text-sm" style={{ margin: 0 }}>
-            Batch Code: <strong style={{ color: 'var(--navy)' }}>#{batch.batch_code}</strong>
-          </p>
         </div>
 
         {/* QR Code Canvas Frame */}

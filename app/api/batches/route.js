@@ -48,18 +48,21 @@ export async function POST(request) {
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const body = await request.json();
-  if (!body.batch_code || !body.batch_name) {
-    return NextResponse.json({ error: 'batch_code and batch_name are required.' }, { status: 400 });
+  if (!body.batch_name) {
+    return NextResponse.json({ error: 'Batch name is required.' }, { status: 400 });
   }
 
-  const reg_token = `${body.batch_code}-${Math.random().toString(36).slice(2, 8)}`.toLowerCase();
+  const batch_name = body.batch_name.trim();
+  const batch_code = body.batch_code ? body.batch_code.trim() : batch_name;
+  const slug = batch_name.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-').slice(0, 30);
+  const reg_token = `${slug}-${Math.random().toString(36).slice(2, 8)}`.toLowerCase();
   const programme_type = ['MEMBERSHIP', 'MIT', 'PROCLAIMERS'].includes(body.programme_type)
     ? body.programme_type
     : 'MEMBERSHIP';
 
   const { data, error } = await supabaseAdmin
     .from('batches')
-    .insert({ batch_code: body.batch_code, batch_name: body.batch_name, reg_token, programme_type })
+    .insert({ batch_code, batch_name, reg_token, programme_type })
     .select()
     .single();
 

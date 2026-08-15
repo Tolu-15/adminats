@@ -61,6 +61,7 @@ export async function POST(request) {
     }
 
     const nextSeq = maxSeq + 1;
+    const seqStr = String(nextSeq).padStart(4, '0');
     const numMatch = (batch.batch_name || '').match(/\d+/);
     const batchTag = numMatch ? numMatch[0] : (batch.batch_name || 'ATS').replace(/[^a-zA-Z0-9]/g, '').slice(0, 6).toUpperCase();
     const student_unique_id = `ATS-${batchTag}-${seqStr}`;

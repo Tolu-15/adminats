@@ -1071,9 +1071,70 @@ textarea:focus {
   z-index: 140;
 }
 
+.profile-student-grid {
+  display: grid;
+  grid-template-columns: 340px 1fr;
+  gap: 20px;
+  align-items: start;
+}
+
+.profile-tabs-scroll {
+  display: flex;
+  border-bottom: 2px solid var(--line);
+  margin-bottom: 20px;
+  gap: 8px;
+  overflow-x: auto;
+  white-space: nowrap;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 4px;
+}
+
+.profile-tabs-scroll::-webkit-scrollbar {
+  display: none;
+}
+
 @media (max-width: 900px) {
   .profile-student-grid {
     grid-template-columns: 1fr !important;
+  }
+}
+
+@media (max-width: 640px) {
+  .profile-row {
+    flex-direction: column;
+    gap: 3px;
+    padding: 8px 0;
+  }
+
+  .profile-row-label {
+    min-width: 0;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--muted);
+  }
+
+  .profile-row-value {
+    font-size: 0.92rem;
+    font-weight: 600;
+    word-break: break-word;
+  }
+
+  .grades-grid {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 8px;
+  }
+
+  .grade-box {
+    padding: 10px 12px;
+  }
+
+  .grade-box-label {
+    font-size: 0.68rem;
+  }
+
+  .grade-box-value {
+    font-size: 1.2rem;
   }
 }
 

@@ -151,7 +151,7 @@ export default function StudentViewerProfile() {
         </div>
 
         {/* ── MAIN LAYOUT GRID ── */}
-        <div style={{ display: 'grid', gridTemplateColumns: '340px 1fr', gap: 20, alignItems: 'start' }}>
+        <div className="profile-student-grid">
 
           {/* ── LEFT: BIODATA ── */}
           <div className="card">
@@ -164,8 +164,14 @@ export default function StudentViewerProfile() {
                 </div>
               )}
               <div style={{ flex: 1, minWidth: 0 }}>
-                <h1 style={{ fontSize: '1.1rem', margin: 0, color: 'var(--navy)' }}>{fullName}</h1>
-                <span className="badge badge-gold" style={{ marginTop: 4, fontSize: '0.75rem' }}>{student.student_unique_id}</span>
+                <h1 style={{ fontSize: '1.1rem', margin: 0, color: 'var(--navy)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                  {fullName.toUpperCase()}
+                </h1>
+                <div style={{ marginTop: 6, display: 'inline-block', textAlign: 'center' }}>
+                  <span className="badge badge-gold" style={{ fontSize: '0.78rem', letterSpacing: '1px', fontFamily: 'monospace', fontWeight: 700, padding: '3px 10px' }}>
+                    {student.student_unique_id}
+                  </span>
+                </div>
                 {isFirstTimer && (
                   <div style={{ marginTop: 6 }}>
                     <span style={{ background: 'rgba(59,130,246,0.12)', color: '#1d4ed8', border: '1px solid rgba(59,130,246,0.3)', borderRadius: 6, padding: '2px 8px', fontSize: '0.68rem', fontWeight: 700 }}>⭐ First Timer</span>
@@ -205,7 +211,7 @@ export default function StudentViewerProfile() {
           {/* ── RIGHT: READ-ONLY GRADES ── */}
           <div>
             {/* Tabs */}
-            <div style={{ display: 'flex', borderBottom: '2px solid var(--border)', marginBottom: 20, gap: 0, flexWrap: 'wrap' }}>
+            <div className="profile-tabs-scroll">
               {[
                 { id: 'MEMBERSHIP', label: '🎓 Membership Grades' },
                 { id: 'MIT', label: `📖 MIT Record${mitReg ? ' ✓' : ''}` },

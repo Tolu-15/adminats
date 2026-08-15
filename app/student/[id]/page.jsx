@@ -3,11 +3,11 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import ProfileRow from '../../components/ProfileRow';
-import StatusPill from '../../components/StatusPill';
-import PageLoader from '../../components/PageLoader';
-import Logo from '../../components/Logo';
-import { getImageUrl } from '../../lib/getImageUrl';
+import ProfileRow from '../../../components/ProfileRow';
+import StatusPill from '../../../components/StatusPill';
+import PageLoader from '../../../components/PageLoader';
+import Logo from '../../../components/Logo';
+import { getImageUrl } from '../../../lib/getImageUrl';
 
 export default function StudentViewerProfile() {
   const { id } = useParams();

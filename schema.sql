@@ -334,5 +334,25 @@ alter table students add column if not exists is_first_timer text default 'Yes';
 -- ============================================================
 alter table student_grades add column if not exists id_card_collected_date date;
 
+-- ============================================================
+-- [NEW] LOCAL GOVERNMENT & NEXT OF KIN FIELDS MIGRATION
+-- Run these 3 lines in your Supabase SQL Editor:
+-- ============================================================
+alter table students add column if not exists local_government text;
+alter table students add column if not exists next_of_kin_relationship text;
+alter table students add column if not exists next_of_kin_phone text;
+
+-- ============================================================
+-- [ROLES MIGRATION] ASSIGN VIEWER & ADMIN ROLES IN SUPABASE
+-- Run these in your Supabase SQL Editor to configure user roles:
+-- ============================================================
+-- Make a user a READ-ONLY VIEWER account:
+-- UPDATE auth.users SET raw_user_meta_data = jsonb_build_object('role', 'viewer') WHERE email = 'viewer@ats.org';
+
+-- Make a user a FULL SUPER ADMIN account:
+-- UPDATE auth.users SET raw_user_meta_data = jsonb_build_object('role', 'admin') WHERE email = 'admin@ats.org';
+
+
+
 
 

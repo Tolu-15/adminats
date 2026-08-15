@@ -40,13 +40,30 @@ export async function POST(request) {
       return NextResponse.json({ error: 'Invalid or inactive batch.' }, { status: 400 });
     }
 
-    // Generate the unique student ID atomically via Postgres sequence
-    // Format: ATS-[BATCH_CODE]-NNNN  e.g. ATS-055-0001
-    const { data: idData, error: idError } = await supabaseAdmin.rpc('generate_student_id', {
-      p_batch_code: batch.batch_code,
-    });
-    if (idError) throw idError;
-    const student_unique_id = idData;
+    // Generate student ID starting from 0001 for EACH batch
+    // Format: ATS-[BATCH_CODE]-NNNN  e.g. ATS-056-0001
+    const { data: existingStudents } = await supabaseAdmin
+      .from('students')
+      .select('student_unique_id')
+      .eq('batch_id', batch_id);
+
+    let maxSeq = 0;
+    if (existingStudents && existingStudents.length > 0) {
+      for (const s of existingStudents) {
+        if (s.student_unique_id) {
+          const parts = s.student_unique_id.split('-');
+          const lastNum = parseInt(parts[parts.length - 1], 10);
+          if (!isNaN(lastNum) && lastNum > maxSeq) {
+            maxSeq = lastNum;
+          }
+        }
+      }
+    }
+
+    const nextSeq = maxSeq + 1;
+    const numMatch = (batch.batch_name || '').match(/\d+/);
+    const batchTag = numMatch ? numMatch[0] : (batch.batch_name || 'ATS').replace(/[^a-zA-Z0-9]/g, '').slice(0, 6).toUpperCase();
+    const student_unique_id = `ATS-${batchTag}-${seqStr}`;
 
     const record = {
       student_unique_id,
@@ -58,10 +75,13 @@ export async function POST(request) {
       phone: body.phone,
       date_of_birth: body.date_of_birth || null,
       gender: body.gender,
+      is_first_timer: body.is_first_timer === 'Yes',
       home_address: body.home_address || null,
       next_of_kin: body.next_of_kin || null,
-      next_of_kin_address: body.next_of_kin_address || null,
+      next_of_kin_relationship: body.next_of_kin_relationship || null,
+      next_of_kin_phone: body.next_of_kin_phone || null,
       state_of_origin: body.state_of_origin || null,
+      local_government: body.local_government || null,
       nationality: body.nationality || null,
       education: body.education || null,
       born_again: body.born_again || null,
@@ -75,13 +95,39 @@ export async function POST(request) {
       photo_url: body.photo_url || null,
     };
 
-    const { data: student, error: insertError } = await supabaseAdmin
+    let { data: student, error: insertError } = await supabaseAdmin
       .from('students')
       .insert(record)
       .select()
       .single();
 
-    if (insertError) throw insertError;
+    // Fallback if Supabase database doesn't have the 3 new columns yet
+    if (insertError && (insertError.message?.includes('column') || insertError.code === 'PGRST204' || insertError.message?.includes('schema'))) {
+      console.warn('Supabase DB missing new columns, retrying insert with legacy schema compatibility:', insertError.message);
+      const legacyRecord = { ...record };
+      delete legacyRecord.local_government;
+      delete legacyRecord.next_of_kin_relationship;
+      delete legacyRecord.next_of_kin_phone;
+
+      // Preserve next of kin relationship/phone inside next_of_kin_address
+      if (record.next_of_kin_relationship || record.next_of_kin_phone) {
+        legacyRecord.next_of_kin_address = [
+          record.next_of_kin_relationship ? `Rel: ${record.next_of_kin_relationship}` : null,
+          record.next_of_kin_phone ? `Phone: ${record.next_of_kin_phone}` : null,
+        ].filter(Boolean).join(' | ');
+      }
+
+      const res2 = await supabaseAdmin
+        .from('students')
+        .insert(legacyRecord)
+        .select()
+        .single();
+
+      if (res2.error) throw res2.error;
+      student = res2.data;
+    } else if (insertError) {
+      throw insertError;
+    }
 
     // Sync to Google Sheets — don't fail registration if this errors,
     // just log it, since the source of truth is Supabase.

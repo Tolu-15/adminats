@@ -102,7 +102,7 @@ export default function AdminDashboard() {
   async function createBatch(e) {
     e.preventDefault();
     setError('');
-    if (!batchCode || !batchName) { setError('Enter both a batch code and a batch name.'); return; }
+    if (!batchName.trim()) { setError('Enter a batch name.'); return; }
 
     const { data: freshData } = await supabase.auth.getSession();
     const token = freshData?.session?.access_token || session?.access_token;
@@ -110,11 +110,11 @@ export default function AdminDashboard() {
     const res = await fetch('/api/batches', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ batch_code: batchCode, batch_name: batchName, programme_type: programmeType }),
+      body: JSON.stringify({ batch_name: batchName.trim(), programme_type: programmeType }),
     });
     const json = await res.json();
     if (!res.ok) { setError(json.error || 'Failed to create batch.'); return; }
-    setBatchCode(''); setBatchName(''); setProgrammeType('MEMBERSHIP'); setShowForm(false);
+    setBatchName(''); setProgrammeType('MEMBERSHIP'); setShowForm(false);
     loadData(token);
   }
 
@@ -264,7 +264,16 @@ export default function AdminDashboard() {
             )}
           </div>
 
-          <div className="admin-topbar-right">
+          <div className="admin-topbar-right" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            {session?.isViewer ? (
+              <span className="badge" style={{ background: 'rgba(59,130,246,0.12)', color: '#1d4ed8', border: '1px solid rgba(59,130,246,0.3)', padding: '4px 10px', fontSize: '0.75rem' }}>
+                👁️ Viewer Account (Read Only)
+              </span>
+            ) : (
+              <span className="badge badge-gold" style={{ padding: '4px 10px', fontSize: '0.75rem' }}>
+                ⚡ Super Admin
+              </span>
+            )}
             <span className="muted text-sm">{session?.user?.email}</span>
           </div>
         </div>
@@ -352,17 +361,19 @@ export default function AdminDashboard() {
               <button className="btn btn-outline" onClick={downloadTemplate} title="Download master migration template Excel sheet">
                 <i className="fa-solid fa-file-excel"></i> Migration Template
               </button>
-              <button className="btn btn-gold" onClick={() => setShowForm((s) => !s)}>
-                {showForm ? (
-                  <>
-                    <i className="fa-solid fa-xmark"></i> Cancel
-                  </>
-                ) : (
-                  <>
-                    <i className="fa-solid fa-plus"></i> New Batch
-                  </>
-                )}
-              </button>
+              {!session?.isViewer && (
+                <button className="btn btn-gold" onClick={() => setShowForm((s) => !s)}>
+                  {showForm ? (
+                    <>
+                      <i className="fa-solid fa-xmark"></i> Cancel
+                    </>
+                  ) : (
+                    <>
+                      <i className="fa-solid fa-plus"></i> New Batch
+                    </>
+                  )}
+                </button>
+              )}
             </div>
           </div>
 
@@ -430,7 +441,6 @@ export default function AdminDashboard() {
                             {b.batch_name}
                           </a>
                           <div style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                            <span className="batch-card-code">#{b.batch_code}</span>
                             {b.programme_type && b.programme_type !== 'MEMBERSHIP' && (
                               <span className="badge badge-gold" style={{ fontSize: '0.68rem', padding: '2px 8px' }}>
                                 {b.programme_type}
@@ -439,22 +449,24 @@ export default function AdminDashboard() {
                           </div>
                         </div>
 
-                        {/* Top-Right Delete Button */}
-                        <button
-                          onClick={() => deleteBatch(b)}
-                          disabled={deletingBatch === b.id}
-                          title="Delete batch"
-                          style={{
-                            background: '#fee2e2', color: '#dc2626',
-                            border: '1px solid #fca5a5', borderRadius: 8,
-                            width: 32, height: 32, display: 'flex',
-                            alignItems: 'center', justifyContent: 'center',
-                            cursor: deletingBatch === b.id ? 'not-allowed' : 'pointer',
-                            fontSize: '0.85rem', flexShrink: 0,
-                          }}
-                        >
-                          {deletingBatch === b.id ? <i className="fa-solid fa-spinner fa-spin" /> : <i className="fa-solid fa-trash" />}
-                        </button>
+                        {/* Top-Right Delete Button (Full Admin Only) */}
+                        {!session?.isViewer && (
+                          <button
+                            onClick={() => deleteBatch(b)}
+                            disabled={deletingBatch === b.id}
+                            title="Delete batch"
+                            style={{
+                              background: '#fee2e2', color: '#dc2626',
+                              border: '1px solid #fca5a5', borderRadius: 8,
+                              width: 32, height: 32, display: 'flex',
+                              alignItems: 'center', justifyContent: 'center',
+                              cursor: deletingBatch === b.id ? 'not-allowed' : 'pointer',
+                              fontSize: '0.85rem', flexShrink: 0,
+                            }}
+                          >
+                            {deletingBatch === b.id ? <i className="fa-solid fa-spinner fa-spin" /> : <i className="fa-solid fa-trash" />}
+                          </button>
+                        )}
                       </div>
 
                       {/* Student Count & Path Container */}

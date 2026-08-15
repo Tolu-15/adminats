@@ -1,7 +1,7 @@
 import Link from 'next/link';
 
 export default function BatchTable({ batches, onCopyLink }) {
-  if (batches.length === 0) {
+  if (!batches || batches.length === 0) {
     return <div className="card"><p className="muted">No batches yet. Create your first batch to get a registration link.</p></div>;
   }
 
@@ -10,8 +10,7 @@ export default function BatchTable({ batches, onCopyLink }) {
       <table>
         <thead>
           <tr>
-            <th>Batch</th>
-            <th>Code</th>
+            <th>Batch Name</th>
             <th>Registrations</th>
             <th>Registration Link</th>
             <th></th>
@@ -20,8 +19,7 @@ export default function BatchTable({ batches, onCopyLink }) {
         <tbody>
           {batches.map((b) => (
             <tr key={b.id}>
-              <td><Link href={`/admin/batch/${b.id}`}>{b.batch_name}</Link></td>
-              <td>{b.batch_code}</td>
+              <td><Link href={`/admin/batch/${b.id}`} style={{ fontWeight: 600, color: 'var(--navy)' }}>{b.batch_name}</Link></td>
               <td>{b.students?.[0]?.count ?? 0}</td>
               <td className="muted" style={{ fontSize: '0.82rem' }}>/register/{b.reg_token}</td>
               <td>

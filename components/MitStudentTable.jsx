@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { getImageUrl } from '../lib/getImageUrl';
 
 export default function MitStudentTable({ registrations = [], searchQuery = '' }) {
   const q = searchQuery.toLowerCase().trim();
@@ -56,7 +57,7 @@ export default function MitStudentTable({ registrations = [], searchQuery = '' }
             <tr key={reg.id}>
               <td>
                 {s.photo_url ? (
-                  <img src={s.photo_url} alt="" style={{ width: 36, height: 36, borderRadius: '50%', objectFit: 'cover' }} />
+                  <img src={getImageUrl(s.photo_url)} alt="" style={{ width: 36, height: 36, borderRadius: '50%', objectFit: 'cover' }} />
                 ) : (
                   <div style={{
                     width: 36, height: 36, borderRadius: '50%',
@@ -81,8 +82,10 @@ export default function MitStudentTable({ registrations = [], searchQuery = '' }
               <td>
                 {status === 'PASSED' ? (
                   <span className="grade-pill passed">PASSED</span>
-                ) : status === 'FAILED' ? (
-                  <span className="grade-pill failed">FAILED</span>
+                ) : status === 'FAILED' || status === 'DROP' ? (
+                  <span className="grade-pill failed">DROP</span>
+                ) : status === 'IN_PROGRESS' ? (
+                  <span className="grade-pill in-progress">IN PROGRESS</span>
                 ) : (
                   <span className="grade-pill pending">Pending</span>
                 )}

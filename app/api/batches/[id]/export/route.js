@@ -25,7 +25,7 @@ export async function GET(request, { params }) {
   if (batchErr || !batch) return NextResponse.json({ error: 'Batch not found' }, { status: 404 });
 
   const wb = XLSX.utils.book_new();
-  const safeCode = batch.batch_code.replace(/\s+/g, '_');
+  const safeCode = (batch.batch_name || 'Batch').replace(/\s+/g, '_');
 
   // ── 1. MEMBERSHIP STUDENTS SHEET ────────────────────────────
   const { data: students } = await supabaseAdmin
@@ -47,7 +47,7 @@ export async function GET(request, { params }) {
     );
 
     const ws_data = [
-      ['MEMBERSHIP GRADES', '', '', '', '', '', '', '', '', '', `BATCH ${batch.batch_code}`, '', '', '', '', '', '', '', ''],
+      ['MEMBERSHIP GRADES', '', '', '', '', '', '', '', '', '', `${(batch.batch_name || '').toUpperCase()}`, '', '', '', '', '', '', '', ''],
       [
         'STUDENT NAME', 'STUDENT ID', 'CARD NUMBER', 'CLASS', 'TRAINERS',
         'ATTENDANCE', 'TEST', 'ASSIGNMENT', 'ASSESSMENT', 'PRESENTATION',
@@ -103,7 +103,7 @@ export async function GET(request, { params }) {
     );
 
     const ws_data = [
-      ['MIT GRADES', '', '', '', '', '', '', '', '', '', '', `BATCH ${batch.batch_code}`, '', '', '', '', '', '', '', '', '', ''],
+      ['MIT GRADES', '', '', '', '', '', '', '', '', '', '', `${(batch.batch_name || '').toUpperCase()}`, '', '', '', '', '', '', '', '', '', ''],
       [
         'STUDENT NAME', 'STUDENT ID', 'CARD NUMBER', 'CLASS', 'TRAINERS',
         'MIDTERM TEST', 'INTERACTIONS', 'BIBLE STUDY', 'ASSIGNMENT', 'ATTENDANCE',
@@ -165,7 +165,7 @@ export async function GET(request, { params }) {
 
     const ws_data = [
       // Top header row matching official Proclaimers format exactly
-      ['PROCLAIMERS GRADES', '', '', '', '', '', 'CONTINUS', '', '', 'MOUNTAIN OF', 'SEMINAR', '', 'STATUS', '', `BATCH ${batch.batch_code}`],
+      ['PROCLAIMERS GRADES', '', '', '', '', '', 'CONTINUS', '', '', 'MOUNTAIN OF', 'SEMINAR', '', 'STATUS', '', `${(batch.batch_name || '').toUpperCase()}`],
       [
         'STUDENT NAME', 'STUDENT ID', 'CLASS', 'TRAINER',
         'CIH', 'ATTENDANCE', 'ASSESSMENT', 'PRESENTATION', 'PROJECT',

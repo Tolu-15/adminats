@@ -11,6 +11,7 @@ import StudentTable from '../../../../components/StudentTable';
 import MitStudentTable from '../../../../components/MitStudentTable';
 import PageLoader from '../../../../components/PageLoader';
 import QRCodeModal from '../../../../components/QRCodeModal';
+import { getImageUrl } from '../../../../lib/getImageUrl';
 
 export default function BatchDetail() {
   const session = useAdminGuard();
@@ -151,19 +152,22 @@ export default function BatchDetail() {
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <div className="admin-topbar-title">{batch?.batch_name}</div>
-                <span style={{
-                  background: 'rgba(212,175,55,0.12)', color: 'var(--gold)',
-                  border: '1px solid rgba(212,175,55,0.3)',
-                  borderRadius: 5, padding: '2px 8px',
-                  fontSize: '0.68rem', fontWeight: 700, letterSpacing: 0.5,
-                }}>#{batch?.batch_code}</span>
               </div>
               <div className="muted text-sm">
                 {totalCount} student{totalCount !== 1 ? 's' : ''} registered
               </div>
             </div>
           </div>
-          <div className="admin-topbar-right">
+          <div className="admin-topbar-right" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            {session?.isViewer ? (
+              <span className="badge" style={{ background: 'rgba(59,130,246,0.12)', color: '#1d4ed8', border: '1px solid rgba(59,130,246,0.3)', padding: '4px 10px', fontSize: '0.75rem' }}>
+                👁️ Viewer Account (Read Only)
+              </span>
+            ) : (
+              <span className="badge badge-gold" style={{ padding: '4px 10px', fontSize: '0.75rem' }}>
+                ⚡ Super Admin
+              </span>
+            )}
             <span className="muted text-sm">{session?.user?.email}</span>
           </div>
         </div>
@@ -188,49 +192,34 @@ export default function BatchDetail() {
               <button className="btn btn-outline btn-sm" onClick={() => setShowQrModal(true)}>
                 <i className="fa-solid fa-qrcode"></i> QR Code
               </button>
-              <button className="btn btn-outline btn-sm" onClick={downloadTemplate} title="Download master migration template Excel sheet">
-                <i className="fa-solid fa-file-excel"></i> Migration Template
-              </button>
+              {!session?.isViewer && (
+                <button className="btn btn-outline btn-sm" onClick={downloadTemplate} title="Download master migration template Excel sheet">
+                  <i className="fa-solid fa-file-excel"></i> Migration Template
+                </button>
+              )}
               <button className="btn btn-outline btn-sm" onClick={downloadExcel}>
                 <i className="fa-solid fa-file-export"></i> Export Grade Sheet
               </button>
-              <label className="btn btn-gold btn-sm" style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                {importing ? (
-                  <>
-                    <i className="fa-solid fa-spinner fa-spin"></i> Migrating…
-                  </>
-                ) : (
-                  <>
-                    <i className="fa-solid fa-file-import"></i> Batch Data Upload
-                  </>
-                )}
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept=".xlsx,.xls"
-                  style={{ display: 'none' }}
-                  onChange={handleUpload}
-                  disabled={importing}
-                />
-              </label>
-              <button
-                className="btn btn-sm"
-                onClick={deleteBatch}
-                disabled={deleting}
-                style={{
-                  background: deleting ? '#fca5a5' : '#fee2e2',
-                  color: '#dc2626',
-                  border: '1px solid #fca5a5',
-                  cursor: deleting ? 'not-allowed' : 'pointer',
-                  display: 'inline-flex', alignItems: 'center', gap: 6,
-                }}
-              >
-                {deleting ? (
-                  <><i className="fa-solid fa-spinner fa-spin"></i> Deleting…</>
-                ) : (
-                  <><i className="fa-solid fa-trash"></i> Delete Batch</>
-                )}
-              </button>
+              {!session?.isViewer && (
+                <button
+                  className="btn btn-sm"
+                  onClick={deleteBatch}
+                  disabled={deleting}
+                  style={{
+                    background: deleting ? '#fca5a5' : '#fee2e2',
+                    color: '#dc2626',
+                    border: '1px solid #fca5a5',
+                    cursor: deleting ? 'not-allowed' : 'pointer',
+                    display: 'inline-flex', alignItems: 'center', gap: 6,
+                  }}
+                >
+                  {deleting ? (
+                    <><i className="fa-solid fa-spinner fa-spin"></i> Deleting…</>
+                  ) : (
+                    <><i className="fa-solid fa-trash"></i> Delete Batch</>
+                  )}
+                </button>
+              )}
             </div>
           </div>
 
@@ -477,7 +466,7 @@ function ProclaimersTable({ registrations = [], searchQuery = '' }) {
             <tr key={reg.id}>
               <td>
                 {s.photo_url ? (
-                  <img src={s.photo_url} alt="" style={{ width: 36, height: 36, borderRadius: '50%', objectFit: 'cover' }} />
+                  <img src={getImageUrl(s.photo_url)} alt="" style={{ width: 36, height: 36, borderRadius: '50%', objectFit: 'cover' }} />
                 ) : (
                   <div style={{
                     width: 36, height: 36, borderRadius: '50%',
@@ -500,8 +489,10 @@ function ProclaimersTable({ registrations = [], searchQuery = '' }) {
               <td>
                 {status === 'PASSED' ? (
                   <span className="grade-pill passed">PASSED</span>
-                ) : status === 'FAILED' ? (
-                  <span className="grade-pill failed">FAILED</span>
+                ) : status === 'FAILED' || status === 'DROP' ? (
+                  <span className="grade-pill failed">DROP</span>
+                ) : status === 'IN_PROGRESS' ? (
+                  <span className="grade-pill in-progress">IN PROGRESS</span>
                 ) : (
                   <span className="grade-pill pending">Pending</span>
                 )}

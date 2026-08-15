@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { supabase } from '../../../lib/supabaseClient';
 import { useAdminGuard } from '../../../lib/useAdminGuard';
 import Sidebar from '../../../components/Sidebar';
+import { getImageUrl } from '../../../lib/getImageUrl';
 
 export default function SearchStudents() {
   const session = useAdminGuard();
@@ -114,7 +115,7 @@ export default function SearchStudents() {
                         <td>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                             {s.photo_url
-                              ? <img src={s.photo_url} alt="" style={{ width: 32, height: 32, borderRadius: '50%', objectFit: 'cover' }} />
+                              ? <img src={getImageUrl(s.photo_url)} alt="" style={{ width: 32, height: 32, borderRadius: '50%', objectFit: 'cover' }} />
                               : (
                                 <div style={{
                                   width: 32, height: 32, borderRadius: '50%', flexShrink: 0,

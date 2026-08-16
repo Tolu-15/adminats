@@ -193,9 +193,37 @@ export default function BatchDetail() {
                 <i className="fa-solid fa-qrcode"></i> QR Code
               </button>
               {!session?.isViewer && (
-                <button className="btn btn-outline btn-sm" onClick={downloadTemplate} title="Download master migration template Excel sheet">
-                  <i className="fa-solid fa-file-excel"></i> Migration Template
-                </button>
+                <>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".xlsx,.xls"
+                    style={{ display: 'none' }}
+                    onChange={handleUpload}
+                  />
+                  <button
+                    className="btn btn-sm"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={importing}
+                    title="Upload filled migration template to import students"
+                    style={{
+                      background: importing ? 'rgba(212,175,55,0.5)' : 'rgba(212,175,55,0.15)',
+                      color: 'var(--navy)',
+                      border: '1px solid rgba(212,175,55,0.5)',
+                      cursor: importing ? 'not-allowed' : 'pointer',
+                      display: 'inline-flex', alignItems: 'center', gap: 6,
+                    }}
+                  >
+                    {importing ? (
+                      <><i className="fa-solid fa-spinner fa-spin"></i> Importing…</>
+                    ) : (
+                      <><i className="fa-solid fa-file-import"></i> Import Data</>
+                    )}
+                  </button>
+                  <button className="btn btn-outline btn-sm" onClick={downloadTemplate} title="Download master migration template Excel sheet">
+                    <i className="fa-solid fa-file-excel"></i> Migration Template
+                  </button>
+                </>
               )}
               <button className="btn btn-outline btn-sm" onClick={downloadExcel}>
                 <i className="fa-solid fa-file-export"></i> Export Grade Sheet

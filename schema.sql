@@ -343,6 +343,15 @@ alter table students add column if not exists next_of_kin_relationship text;
 alter table students add column if not exists next_of_kin_phone text;
 
 -- ============================================================
+-- [NEW] PROCLAIMERS GRADES — EXTRA SCORE & FIRST TIMER FIELDS
+-- Run these 4 lines in your Supabase SQL Editor:
+-- ============================================================
+alter table proclaimers_grades add column if not exists influence       int;          -- MT.OF INFLUENCE score
+alter table proclaimers_grades add column if not exists seminar_attendance int;        -- SEMINAR ATTENDANCE score
+alter table proclaimers_grades add column if not exists first_timer     text;         -- YES / NO
+alter table proclaimers_grades add column if not exists first_timer_date date;        -- DATE JOINED
+
+-- ============================================================
 -- [ROLES MIGRATION] ASSIGN VIEWER & ADMIN ROLES IN SUPABASE
 -- Run these in your Supabase SQL Editor to configure user roles:
 -- ============================================================

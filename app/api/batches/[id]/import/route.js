@@ -135,6 +135,7 @@ export async function POST(request, { params }) {
 
   const studentCache = new Map();
 
+  // Search first 10 rows for a header row matching any keyword
   function findHeaderRow(rows, keywords) {
     for (let r = 0; r < Math.min(rows.length, 10); r++) {
       const rowStr = JSON.stringify(rows[r] || []).toUpperCase();
@@ -145,6 +146,7 @@ export async function POST(request, { params }) {
     return -1;
   }
 
+  // Map a data row to an object keyed by trimmed uppercase header names
   function mapRow(headers, row) {
     const obj = {};
     headers.forEach((h, idx) => {
@@ -156,7 +158,22 @@ export async function POST(request, { params }) {
     return obj;
   }
 
-  // 1. MASTER BIO SHEET
+  // Helper: resolve a student ID from the grade sheet card-no column or name cache
+  function resolveCardNo(r) {
+    return toStr(
+      r['CHARTER MEMBERSHIP ID NO.'] ||
+      r['CHARTER MEMBERSHIP  ID NO.'] ||
+      r['ID CARD NO'] ||
+      r['CARD NUMBER'] ||
+      r['CARD NO']
+    );
+  }
+
+  function resolveFullName(r) {
+    return toStr(r['NAMES'] || r[' NAMES'] || r['FULL NAME'] || r['NAME'] || r['STUDENT NAME']);
+  }
+
+  // ── 1. STUDENTS MASTER BIO SHEET ──────────────────────────────────────────
   const studentSheetName = wb.SheetNames.find((name) =>
     /STUDENT/i.test(name) || /BIO/i.test(name) || /MASTER/i.test(name)
   );
@@ -164,7 +181,7 @@ export async function POST(request, { params }) {
   if (studentSheetName) {
     const ws = wb.Sheets[studentSheetName];
     const rawRows = XLSX.utils.sheet_to_json(ws, { header: 1 });
-    const headerIdx = findHeaderRow(rawRows, ['FULL NAME', 'NAME', 'ID CARD NO', 'EMAIL', 'GENDER']);
+    const headerIdx = findHeaderRow(rawRows, ['NAMES', 'CHARTER MEMBERSHIP', 'EMAIL', 'GENDER', 'PHONE']);
 
     if (headerIdx !== -1) {
       const headers = rawRows[headerIdx];
@@ -172,23 +189,34 @@ export async function POST(request, { params }) {
 
       for (let i = 0; i < dataRows.length; i++) {
         const r = mapRow(headers, dataRows[i]);
-        const fullName = toStr(r['FULL NAME'] || r['NAME'] || r['STUDENT NAME']);
+
+        // Primary name field is now "NAMES"; fall back to older variants
+        const fullName = resolveFullName(r);
         if (!fullName) continue;
 
         const { first_name, middle_name, surname } = parseFullName(fullName);
-        const cardNo = toStr(r['ID CARD NO'] || r['CARD NUMBER'] || r['CARD NO']);
-        const email = toStr(r['EMAIL']);
-        const phone = toStr(r['PHONE NO'] || r['PHONE'] || r['MOBILE']);
-        const gender = toStr(r['GENDER']);
-        const dob = parseExcelDate(r['DATE OF BIRTH'] || r['DOB']);
-        const address = toStr(r['RESIDENTIAL ADDRESS'] || r['ADDRESS']);
+
+        // Card number — now "CHARTER MEMBERSHIP ID NO." in new template
+        const cardNo = resolveCardNo(r);
+
+        const email    = toStr(r['EMAIL']);
+        const phone    = toStr(r['PHONE NO.'] || r['PHONE NO'] || r['PHONE'] || r['MOBILE']);
+        const gender   = toStr(r['GENDER']);
+        const dob      = parseExcelDate(r['DATE OF BIRTH'] || r['DOB']);
+        const address  = toStr(r['RESIDENTIAL ADDRESS'] || r['ADDRESS']);
         const stateOfOrigin = toStr(r['STATE OF ORIGIN']);
-        const nationality = toStr(r['NATIONALITY']);
+        const nationality   = toStr(r['NATIONALITY']);
+
+        // New fields added to updated template
+        const localGovt             = toStr(r['HOME TOWN / LGA'] || r['LGA']);
+        const nextOfKin             = toStr(r['NEXT OF KIN NAME'] || r['NEXT OF KIN']);
+        const nextOfKinPhone        = toStr(r['NEXT OF KIN PHONE NO.'] || r['NEXT OF KIN PHONE']);
+        const nextOfKinRelationship = toStr(r['RELATIONSHIP WITH NEXT OF KIN'] || r['NEXT OF KIN RELATIONSHIP']);
 
         let studentId = null;
         let existingStudent = null;
 
-        // Global lookup across ALL batches by email
+        // Global lookup by email
         if (email) {
           const { data } = await supabaseAdmin
             .from('students')
@@ -198,7 +226,7 @@ export async function POST(request, { params }) {
           if (data && data.length > 0) existingStudent = data[0];
         }
 
-        // Global lookup by cardNo or student_unique_id
+        // Global lookup by card number / student_unique_id
         if (!existingStudent && cardNo) {
           const { data } = await supabaseAdmin
             .from('students')
@@ -208,7 +236,7 @@ export async function POST(request, { params }) {
           if (data && data.length > 0) existingStudent = data[0];
         }
 
-        // Global lookup by surname AND first_name
+        // Global lookup by name
         if (!existingStudent) {
           const { data } = await supabaseAdmin
             .from('students')
@@ -222,7 +250,7 @@ export async function POST(request, { params }) {
         if (existingStudent) {
           studentId = existingStudent.id;
 
-          // Check if this student is from a PREVIOUS batch -> Retake!
+          // If from a previous batch → Retake
           if (existingStudent.batch_id !== batchId) {
             await supabaseAdmin
               .from('students')
@@ -230,6 +258,10 @@ export async function POST(request, { params }) {
                 batch_id: batchId,
                 ...(cardNo ? { card_number: cardNo } : {}),
                 ...(phone && phone !== '00000000000' ? { phone } : {}),
+                ...(localGovt ? { local_government: localGovt } : {}),
+                ...(nextOfKin ? { next_of_kin: nextOfKin } : {}),
+                ...(nextOfKinPhone ? { next_of_kin_phone: nextOfKinPhone } : {}),
+                ...(nextOfKinRelationship ? { next_of_kin_relationship: nextOfKinRelationship } : {}),
               })
               .eq('id', studentId);
 
@@ -242,7 +274,7 @@ export async function POST(request, { params }) {
               });
             }
 
-            // Update grade record comments for retake
+            // Reset grade with retake comment
             const { data: existingGrade } = await supabaseAdmin
               .from('student_grades')
               .select('id, status')
@@ -264,7 +296,7 @@ export async function POST(request, { params }) {
             }
           }
         } else {
-          // Brand new student creation with collision fallback
+          // New student — create with collision fallback
           let insertSuccess = false;
           let attempts = 0;
           let preferredId = cardNo;
@@ -288,6 +320,10 @@ export async function POST(request, { params }) {
               state_of_origin: stateOfOrigin,
               nationality: nationality,
               card_number: cardNo,
+              ...(localGovt ? { local_government: localGovt } : {}),
+              ...(nextOfKin ? { next_of_kin: nextOfKin } : {}),
+              ...(nextOfKinPhone ? { next_of_kin_phone: nextOfKinPhone } : {}),
+              ...(nextOfKinRelationship ? { next_of_kin_relationship: nextOfKinRelationship } : {}),
             };
 
             const { data: created, error: createErr } = await supabaseAdmin
@@ -323,7 +359,7 @@ export async function POST(request, { params }) {
     }
   }
 
-  // 2. MEMBERSHIP GRADES SHEET
+  // ── 2. MEMBERSHIP GRADES SHEET ─────────────────────────────────────────────
   const memSheetName = wb.SheetNames.find((name) =>
     /MEMBERSHIP/i.test(name) || /MEM-100/i.test(name)
   ) || (batch.programme_type === 'MEMBERSHIP' ? wb.SheetNames[0] : null);
@@ -331,7 +367,7 @@ export async function POST(request, { params }) {
   if (memSheetName) {
     const ws = wb.Sheets[memSheetName];
     const rawRows = XLSX.utils.sheet_to_json(ws, { header: 1 });
-    const headerIdx = findHeaderRow(rawRows, ['FULL NAME', 'ATTENDANCE', 'EXAM', 'FINAL GRADES', 'STATUS']);
+    const headerIdx = findHeaderRow(rawRows, ['NAMES', 'ATTENDANCE', 'FINAL GRADES', 'STATUS', 'BAPTISM']);
 
     if (headerIdx !== -1) {
       const headers = rawRows[headerIdx];
@@ -339,10 +375,17 @@ export async function POST(request, { params }) {
 
       for (let i = 0; i < dataRows.length; i++) {
         const r = mapRow(headers, dataRows[i]);
-        const fullName = toStr(r['FULL NAME'] || r['NAME'] || r['STUDENT NAME']);
+        const fullName = resolveFullName(r);
         if (!fullName) continue;
 
         let targetStudentId = studentCache.get(fullName.toUpperCase());
+
+        // Also try lookup by card number from this sheet
+        if (!targetStudentId) {
+          const sheetCardNo = resolveCardNo(r);
+          if (sheetCardNo) targetStudentId = studentCache.get(sheetCardNo.toUpperCase());
+        }
+
         if (!targetStudentId) {
           const { first_name, surname } = parseFullName(fullName);
           const { data: foundList } = await supabaseAdmin
@@ -367,6 +410,7 @@ export async function POST(request, { params }) {
               }
             }
           } else {
+            // Auto-create minimal student record
             let insertSuccess = false;
             let attempts = 0;
             while (!insertSuccess && attempts < 5) {
@@ -404,8 +448,8 @@ export async function POST(request, { params }) {
         }
 
         if (targetStudentId) {
-          // Update card_number on the student profile if provided in the sheet
-          const importedCardNo = toStr(r['CARD NUMBER'] || r['CARD NO'] || r['ID CARD NO']);
+          // Update card number if supplied in this sheet
+          const importedCardNo = resolveCardNo(r);
           if (importedCardNo) {
             await supabaseAdmin
               .from('students')
@@ -413,9 +457,19 @@ export async function POST(request, { params }) {
               .eq('id', targetStudentId);
           }
 
+          // Update student-level fields: first timer & date joined
+          const firstTimer  = toStr(r['FIRST TIMER (YES/NO)']);
+          const dateJoined  = parseExcelDate(r['DATE  JOINED'] || r['DATE JOINED'] || r['DATE OF JOINING']);
+          if (firstTimer || dateJoined) {
+            const studentPatch = {};
+            if (firstTimer) studentPatch.is_first_timer = firstTimer;
+            if (dateJoined) studentPatch.church_join_date = dateJoined;
+            await supabaseAdmin.from('students').update(studentPatch).eq('id', targetStudentId);
+          }
+
           const gradePayload = {
             student_id: targetStudentId,
-            class: toStr(r['CLASS GROUP'] || r['CLASS']),
+            class: toStr(r['CLASS'] || r['CLASS GROUP']),
             trainer: toStr(r['TRAINERS'] || r['TRAINER']),
             attendance: toNum(r['ATTENDANCE']),
             test: toNum(r['TEST']),
@@ -430,7 +484,10 @@ export async function POST(request, { params }) {
             status: toStr(r['STATUS']),
             comments: toStr(r['COMMENTS']),
             covenant_deed: toStr(r['COVENANT DEED']),
-            id_card_collected_date: parseExcelDate(r['ID CARD COLLECTED DATE'] || r['CARD COLLECTED DATE']),
+            // Updated column name: "ID CARD COLLECTED/DATE" (slash, not space)
+            id_card_collected_date: parseExcelDate(
+              r['ID CARD COLLECTED/DATE'] || r['ID CARD COLLECTED DATE']
+            ),
             updated_at: new Date().toISOString(),
           };
 
@@ -448,7 +505,7 @@ export async function POST(request, { params }) {
     }
   }
 
-  // 3. MIT GRADES SHEET
+  // ── 3. MIT GRADES SHEET ────────────────────────────────────────────────────
   const mitSheetName = wb.SheetNames.find((name) =>
     /MIT/i.test(name) || /MIT-200/i.test(name)
   ) || (batch.programme_type === 'MIT' ? wb.SheetNames[0] : null);
@@ -456,7 +513,7 @@ export async function POST(request, { params }) {
   if (mitSheetName && (batch.programme_type === 'MIT' || /MIT/i.test(mitSheetName))) {
     const ws = wb.Sheets[mitSheetName];
     const rawRows = XLSX.utils.sheet_to_json(ws, { header: 1 });
-    const headerIdx = findHeaderRow(rawRows, ['FULL NAME', 'MIDTERM TEST', 'FINAL EXAM', 'FINAL GRADES', 'DEPARTMENT']);
+    const headerIdx = findHeaderRow(rawRows, ['NAMES', 'MIDTERM TEST', 'FINAL EXAM', 'FINAL GRADES', 'CITH']);
 
     if (headerIdx !== -1) {
       const headers = rawRows[headerIdx];
@@ -464,54 +521,67 @@ export async function POST(request, { params }) {
 
       for (let i = 0; i < dataRows.length; i++) {
         const r = mapRow(headers, dataRows[i]);
-        const fullName = toStr(r['FULL NAME'] || r['NAME'] || r['STUDENT NAME']);
+        const fullName = resolveFullName(r);
         if (!fullName) continue;
 
         const { first_name, surname } = parseFullName(fullName);
-        const department = toStr(r['DEPARTMENT']);
+        // Department column in MIT sheet
+        const department = toStr(r['DEPARTMENT'] || r['DEPARTMENT/MINISTRY']);
 
         let targetStudent = null;
-        const { data: foundList } = await supabaseAdmin
-          .from('students')
-          .select('id, batch_id, student_unique_id')
-          .ilike('surname', surname)
-          .ilike('first_name', first_name)
-          .limit(1);
 
-        if (foundList && foundList.length > 0) {
-          targetStudent = foundList[0];
+        // Try cache first (by name or card)
+        let cachedId = studentCache.get(fullName.toUpperCase());
+        if (!cachedId) {
+          const sheetCardNo = resolveCardNo(r);
+          if (sheetCardNo) cachedId = studentCache.get(sheetCardNo.toUpperCase());
+        }
+
+        if (cachedId) {
+          targetStudent = { id: cachedId };
         } else {
-          let insertSuccess = false;
-          let attempts = 0;
-          while (!insertSuccess && attempts < 5) {
-            attempts++;
-            const studentUniqueId = await generateUniqueStudentId(batchId, batch.batch_code);
-            const { data: created, error: createErr } = await supabaseAdmin
-              .from('students')
-              .insert({
-                batch_id: batchId,
-                student_unique_id: studentUniqueId,
-                first_name,
-                surname,
-                email: generateUniqueEmail(first_name, surname),
-                phone: '00000000000',
-                gender: 'Male',
-              })
-              .select('id')
-              .single();
+          const { data: foundList } = await supabaseAdmin
+            .from('students')
+            .select('id, batch_id, student_unique_id')
+            .ilike('surname', surname)
+            .ilike('first_name', first_name)
+            .limit(1);
 
-            if (createErr) {
-              if (
-                createErr.message?.includes('students_student_unique_id_key') ||
-                createErr.message?.includes('duplicate key')
-              ) {
-                continue;
+          if (foundList && foundList.length > 0) {
+            targetStudent = foundList[0];
+          } else {
+            let insertSuccess = false;
+            let attempts = 0;
+            while (!insertSuccess && attempts < 5) {
+              attempts++;
+              const studentUniqueId = await generateUniqueStudentId(batchId, batch.batch_code);
+              const { data: created, error: createErr } = await supabaseAdmin
+                .from('students')
+                .insert({
+                  batch_id: batchId,
+                  student_unique_id: studentUniqueId,
+                  first_name,
+                  surname,
+                  email: generateUniqueEmail(first_name, surname),
+                  phone: '00000000000',
+                  gender: 'Male',
+                })
+                .select('id')
+                .single();
+
+              if (createErr) {
+                if (
+                  createErr.message?.includes('students_student_unique_id_key') ||
+                  createErr.message?.includes('duplicate key')
+                ) {
+                  continue;
+                }
+                break;
+              } else if (created) {
+                targetStudent = created;
+                studentsProcessed++;
+                insertSuccess = true;
               }
-              break;
-            } else if (created) {
-              targetStudent = created;
-              studentsProcessed++;
-              insertSuccess = true;
             }
           }
         }
@@ -525,7 +595,6 @@ export async function POST(request, { params }) {
             .maybeSingle();
 
           if (!reg) {
-            // Check prior MIT registrations for retake
             const { data: priorMit } = await supabaseAdmin
               .from('mit_registrations')
               .select('id')
@@ -557,7 +626,7 @@ export async function POST(request, { params }) {
           if (reg) {
             const mitGradePayload = {
               mit_registration_id: reg.id,
-              class: toStr(r['CLASS GROUP'] || r['CLASS']),
+              class: toStr(r['CLASS'] || r['CLASS GROUP']),
               trainer: toStr(r['TRAINERS'] || r['TRAINER']),
               midterm_test: toNum(r['MIDTERM TEST']),
               interactions: toNum(r['INTERACTIONS']),
@@ -565,7 +634,8 @@ export async function POST(request, { params }) {
               assignment: toNum(r['ASSIGNMENT']),
               attendance: toNum(r['ATTENDANCE']),
               cth: toNum(r['CITH'] || r['CTH']),
-              community_service: toNum(r['SERVICE'] || r['COMMUNITY SERVICE']),
+              // New template uses "COMMUNITY SERVICE" (older used "SERVICE")
+              community_service: toNum(r['COMMUNITY SERVICE'] || r['SERVICE']),
               evangelism: toNum(r['EVANGELISM']),
               presentation: toNum(r['PRESENTATION']),
               final_exam: toNum(r['FINAL EXAM']),
@@ -573,6 +643,10 @@ export async function POST(request, { params }) {
               status: toStr(r['STATUS']),
               comments: toStr(r['COMMENTS']),
               department: department,
+              // Updated column name: "DEPT. CONFIRMATION" (was "CONFIRMATION")
+              department_confirmation: toStr(r['DEPT. CONFIRMATION'] || r['CONFIRMATION']),
+              first_timer: toStr(r['FIRST TIMER (YES/NO)']),
+              first_timer_date: parseExcelDate(r['DATE  JOINED'] || r['DATE JOINED'] || r['DATE OF JOINING']),
               updated_at: new Date().toISOString(),
             };
 
@@ -591,15 +665,15 @@ export async function POST(request, { params }) {
     }
   }
 
-  // 4. PROCLAIMERS GRADES SHEET
+  // ── 4. PROCLAIMERS GRADES SHEET ────────────────────────────────────────────
   const procSheetName = wb.SheetNames.find((name) =>
-    /PROCLAIMERS/i.test(name) || /PROCLAIMER/i.test(name)
+    /PROCLAIMERS/i.test(name) || /PROCLAIMER/i.test(name) || /PRO-300/i.test(name)
   ) || (batch.programme_type === 'PROCLAIMERS' ? wb.SheetNames[0] : null);
 
   if (procSheetName) {
     const ws = wb.Sheets[procSheetName];
     const rawRows = XLSX.utils.sheet_to_json(ws, { header: 1 });
-    const headerIdx = findHeaderRow(rawRows, ['FULL NAME', 'STUDENT NAME', 'CIH', 'PROJECT', 'FINAL GRADES', 'INFLUENCE']);
+    const headerIdx = findHeaderRow(rawRows, ['NAMES', 'CITH', 'PROJECT', 'FINAL GRADES', 'SEMINAR']);
 
     if (headerIdx !== -1) {
       const headers = rawRows[headerIdx];
@@ -607,54 +681,71 @@ export async function POST(request, { params }) {
 
       for (let i = 0; i < dataRows.length; i++) {
         const r = mapRow(headers, dataRows[i]);
-        const fullName = toStr(r['FULL NAME'] || r['NAME'] || r['STUDENT NAME']);
+        const fullName = resolveFullName(r);
         if (!fullName) continue;
 
         const { first_name, surname } = parseFullName(fullName);
-        const department = toStr(r['DEPARTMENT']);
+        // Department — updated template uses "DEPARTMENT/MINISTRY" combined column
+        const department = toStr(
+          r['DEPARTMENT/MINISTRY'] ||
+          r['DEPARTMENT / MINISTRY'] ||
+          r['MINISTRY'] ||
+          r['DEPARTMENT']
+        );
 
         let targetStudent = null;
-        const { data: foundList } = await supabaseAdmin
-          .from('students')
-          .select('id, batch_id, student_unique_id')
-          .ilike('surname', surname)
-          .ilike('first_name', first_name)
-          .limit(1);
 
-        if (foundList && foundList.length > 0) {
-          targetStudent = foundList[0];
+        let cachedId = studentCache.get(fullName.toUpperCase());
+        if (!cachedId) {
+          const sheetCardNo = resolveCardNo(r);
+          if (sheetCardNo) cachedId = studentCache.get(sheetCardNo.toUpperCase());
+        }
+
+        if (cachedId) {
+          targetStudent = { id: cachedId };
         } else {
-          let insertSuccess = false;
-          let attempts = 0;
-          while (!insertSuccess && attempts < 5) {
-            attempts++;
-            const studentUniqueId = await generateUniqueStudentId(batchId, batch.batch_code);
-            const { data: created, error: createErr } = await supabaseAdmin
-              .from('students')
-              .insert({
-                batch_id: batchId,
-                student_unique_id: studentUniqueId,
-                first_name,
-                surname,
-                email: generateUniqueEmail(first_name, surname),
-                phone: '00000000000',
-                gender: 'Male',
-              })
-              .select('id')
-              .single();
+          const { data: foundList } = await supabaseAdmin
+            .from('students')
+            .select('id, batch_id, student_unique_id')
+            .ilike('surname', surname)
+            .ilike('first_name', first_name)
+            .limit(1);
 
-            if (createErr) {
-              if (
-                createErr.message?.includes('students_student_unique_id_key') ||
-                createErr.message?.includes('duplicate key')
-              ) {
-                continue;
+          if (foundList && foundList.length > 0) {
+            targetStudent = foundList[0];
+          } else {
+            let insertSuccess = false;
+            let attempts = 0;
+            while (!insertSuccess && attempts < 5) {
+              attempts++;
+              const studentUniqueId = await generateUniqueStudentId(batchId, batch.batch_code);
+              const { data: created, error: createErr } = await supabaseAdmin
+                .from('students')
+                .insert({
+                  batch_id: batchId,
+                  student_unique_id: studentUniqueId,
+                  first_name,
+                  surname,
+                  email: generateUniqueEmail(first_name, surname),
+                  phone: '00000000000',
+                  gender: 'Male',
+                })
+                .select('id')
+                .single();
+
+              if (createErr) {
+                if (
+                  createErr.message?.includes('students_student_unique_id_key') ||
+                  createErr.message?.includes('duplicate key')
+                ) {
+                  continue;
+                }
+                break;
+              } else if (created) {
+                targetStudent = created;
+                studentsProcessed++;
+                insertSuccess = true;
               }
-              break;
-            } else if (created) {
-              targetStudent = created;
-              studentsProcessed++;
-              insertSuccess = true;
             }
           }
         }
@@ -699,17 +790,24 @@ export async function POST(request, { params }) {
           if (reg) {
             const procGradePayload = {
               proclaimers_registration_id: reg.id,
-              class: toStr(r['CLASS GROUP'] || r['CLASS']),
+              class: toStr(r['CLASS'] || r['CLASS GROUP']),
               trainer: toStr(r['TRAINERS'] || r['TRAINER']),
-              assignment: toNum(r['CIH'] || r['ASSIGNMENT']),
+              // CITH maps to assignment field in proclaimers_grades
+              assignment: toNum(r['CITH'] || r['CIH'] || r['ASSIGNMENT']),
               attendance: toNum(r['ATTENDANCE']),
               assessment: toNum(r['ASSESSMENT']),
               presentation: toNum(r['PRESENTATION']),
               exam: toNum(r['PROJECT'] || r['EXAM']),
               final_grades: toNum(r['FINAL GRADES']),
-              status: toStr(r['(RELEASED)'] || r['STATUS']),
+              // Updated: "STATUS (RELEASED)" is the exact column name in new template
+              status: toStr(r['STATUS (RELEASED)'] || r['STATUS']),
               comments: toStr(r['COMMENTS']),
               department: department,
+              // New fields — require schema migration
+              influence: toNum(r['MT.OF INFLUENCE'] || r['MT. OF INFLUENCE'] || r['INFLUENCE']),
+              seminar_attendance: toNum(r['SEMINAR ATTENDANCE']),
+              first_timer: toStr(r['FIRST TIMER (YES/NO)']),
+              first_timer_date: parseExcelDate(r['DATE JOINED'] || r['DATE  JOINED'] || r['DATE OF JOINING']),
               updated_at: new Date().toISOString(),
             };
 
@@ -739,4 +837,3 @@ export async function POST(request, { params }) {
       : `Migration complete: ${studentsProcessed} new student(s) imported, ${gradesUpdated} grade record(s) processed.`,
   });
 }
-

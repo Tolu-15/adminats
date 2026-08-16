@@ -20,117 +20,182 @@ export async function GET(request) {
   try {
     const wb = XLSX.utils.book_new();
 
-    // ── 1. GUIDELINES & INSTRUCTIONS SHEET ────────────────────────────
-    const instructionsData = [
-      ['ATS MASTER MIGRATION & DATA IMPORT INSTRUCTIONS'],
-      [''],
-      ['IMPORTANT PORTAL FORMATTING RULES:'],
-      ['1. STUDENT NAMES (SURNAME, FIRST NAME, MIDDLE NAME):'],
-      ['   -> All student names will automatically be formatted and listed in BLOCK LETTERS (UPPERCASE) on the portal.'],
-      [''],
-      ['2. REGISTRATION NUMBER & ID CARD NUMBER:'],
-      ['   -> Registration Numbers (e.g. ATS-056-0001) and Card Numbers (e.g. CARD-001) will automatically be centered and formatted on the portal.'],
-      [''],
-      ['3. EXCEL SHEETS INCLUDED IN THIS TEMPLATE:'],
-      ['   - Sheet 1: GUIDELINES & INSTRUCTIONS (This page)'],
-      ['   - Sheet 2: STUDENTS MASTER BIO (Personal biodata, contact info, state, LGA, ID card no)'],
-      ['   - Sheet 3: MEMBERSHIP GRADES (Class group, trainer, attendance, test, exam scores, status)'],
-      ['   - Sheet 4: MIT GRADES (Midterm test, interactions, bible study, final exam, status)'],
-      ['   - Sheet 5: PROCLAIMERS GRADES (CIH, project, seminar, status)'],
-      [''],
-      ['4. DATA IMPORT HINT:'],
-      ['   -> You can upload student bio data and grades together or separately. The system automatically links students across sheets by Email, ID Card No, or Name.'],
-    ];
-
-    const wsInstructions = XLSX.utils.aoa_to_sheet(instructionsData);
-    wsInstructions['!cols'] = [{ wch: 110 }];
-    XLSX.utils.book_append_sheet(wb, wsInstructions, 'GUIDELINES & INSTRUCTIONS');
-
-    // ── 2. STUDENTS MASTER BIO SHEET ────────────────────────────────
+    // ── 1. STUDENTS MASTER BIO SHEET ────────────────────────────────────────
+    // Row 1: Title, Row 2: Batch, Row 3: Header (matches ATS TEMPLATE.xlsx exactly)
     const bioData = [
+      ['STUDENTS — Master Bio Data'],
+      ['BATCH [CODE]. [MONTH, YEAR]'],
       [
-        'FULL NAME', 'GENDER', 'DATE OF BIRTH', 'EMAIL', 'PHONE NO',
-        'RESIDENTIAL ADDRESS', 'STATE OF ORIGIN', 'NATIONALITY', 'ID CARD NO'
+        'REG. NO.',
+        'CHARTER MEMBERSHIP ID NO.',
+        'NAMES',
+        'GENDER',
+        'DATE OF BIRTH',
+        'PHONE NO.',
+        'EMAIL',
+        'RESIDENTIAL ADDRESS',
+        'STATE OF RESIDENCE',
+        'STATE OF ORIGIN',
+        'HOME TOWN / LGA',
+        'COUNTRY OF RESIDENCE',
+        'NATIONALITY',
+        'DEPARTMENT, MINISTRY OR UNIT',
+        'PASSPORT PHOTOGRAPH UPLOADED',
+        'COVENANT DEED SIGNED',
+        'NEXT OF KIN NAME',
+        'NEXT OF KIN PHONE NO.',
+        'RELATIONSHIP WITH NEXT OF KIN',
+        'CURRENT CLASS',
+        '_MEM_RANK',
+        '_MIT_RANK',
+        '_PRO_RANK',
       ],
       [
-        'ADEBAYO OLUWASEUN DANIEL', 'Male', '1998-05-14', 'seun.adebayo@example.com', '08012345678',
-        '12 Allen Avenue, Ikeja, Lagos', 'Lagos', 'Nigerian', 'CARD-001'
+        '1', '2026056 10001', 'SAMPLE STUDENT ONE', 'FEMALE', '2008-03-14', '8000000001',
+        'sample1@example.com', '1 Example Street, Lagos', 'LAGOS', 'OYO', 'IBADAN', 'NIGERIA',
+        'NIGERIAN', '', 'YES', 'SIGNED', '', '', '', 'Membership', '1', '', '',
       ],
       [
-        'OKONKWO CHINWE MARY', 'Female', '2001-09-22', 'chinwe.mary@example.com', '08098765432',
-        '45 Victoria Island, Lagos', 'Anambra', 'Nigerian', 'CARD-002'
+        '2', '2026056 10002', 'SAMPLE STUDENT TWO', 'MALE', '2007-11-02', '8000000002',
+        'sample2@example.com', '2 Example Street, Lagos', 'LAGOS', 'OGUN', 'ABEOKUTA', 'NIGERIA',
+        'NIGERIAN', '', 'YES', 'SIGNED', '', '', '', 'MIT', '', '1', '',
+      ],
+      [
+        '3', '2026056 10003', 'SAMPLE STUDENT THREE', 'FEMALE', '2006-06-21', '8000000003',
+        'sample3@example.com', '3 Example Street, Lagos', 'LAGOS', 'LAGOS', 'EPE', 'NIGERIA',
+        'NIGERIAN', 'MEDIA', 'YES', 'SIGNED', '', '', '', 'Proclaimers', '', '', '1',
       ],
     ];
     const wsBio = XLSX.utils.aoa_to_sheet(bioData);
     wsBio['!cols'] = [
-      { wch: 30 }, { wch: 10 }, { wch: 14 }, { wch: 28 }, { wch: 16 },
-      { wch: 35 }, { wch: 16 }, { wch: 14 }, { wch: 16 }
+      { wch: 10 }, { wch: 22 }, { wch: 30 }, { wch: 10 }, { wch: 14 }, { wch: 16 },
+      { wch: 28 }, { wch: 35 }, { wch: 18 }, { wch: 16 }, { wch: 16 }, { wch: 18 },
+      { wch: 14 }, { wch: 26 }, { wch: 26 }, { wch: 22 }, { wch: 22 }, { wch: 22 },
+      { wch: 26 }, { wch: 16 }, { wch: 12 }, { wch: 12 }, { wch: 12 },
     ];
-    XLSX.utils.book_append_sheet(wb, wsBio, 'STUDENTS MASTER BIO');
+    XLSX.utils.book_append_sheet(wb, wsBio, 'Students');
 
-    // ── 3. MEMBERSHIP GRADES SHEET ──────────────────────────────────
+    // ── 2. MEMBERSHIP (MEM-100) SHEET ────────────────────────────────────────
+    // Header on Row 3; columns match ATS TEMPLATE.xlsx exactly
     const memData = [
+      ['MEMBERSHIP — MEM-100 Class Records'],
+      ['BATCH [CODE]. [MONTH, YEAR]'],
       [
-        'FULL NAME', 'ID CARD NO', 'CLASS GROUP', 'TRAINERS',
-        'ATTENDANCE', 'TEST', 'ASSIGNMENT', 'ASSESSMENT', 'PRESENTATION',
-        'EXAM', 'FINAL GRADES', 'BAPTISM (WATER)', 'BAPTISM (HOLY SPIRIT)',
-        'PORTAL', 'STATUS', 'COMMENTS', 'COVENANT DEED', 'ID CARD COLLECTED DATE'
+        'CHARTER MEMBERSHIP  ID NO.',
+        ' NAMES',
+        'CLASS ',
+        'TRAINERS',
+        'ATTENDANCE',
+        'TEST',
+        'ASSIGNMENT',
+        'ASSESSMENT',
+        'PRESENTATION',
+        'EXAM',
+        'FINAL GRADES',
+        'BAPTISM (WATER)',
+        'BAPTISM (HOLY SPIRIT)',
+        'PORTAL',
+        'STATUS',
+        'COVENANT DEED',
+        'FIRST TIMER (YES/NO)',
+        'DATE  JOINED',
+        'ID CARD COLLECTED/DATE',
+        'COMMENTS',
       ],
       [
-        'ADEBAYO OLUWASEUN DANIEL', 'CARD-001', 'Group A', 'Pastor John',
-        10, 15, 15, 10, 10, 35, 95, 'YES', 'YES', 'ACTIVE', 'PASSED', 'Excellent performance', 'SIGNED', '2026-08-01'
-      ]
+        '', 'SAMPLE STUDENT ONE', '', 'Trainer Name',
+        20, 15, 15, 40, 10, 35, 95, 'YES', 'YES', 'ACTIVE', 'PASSED', 'SIGNED', 'NO', '', '', 'Excellent',
+      ],
+      [
+        '', 'SAMPLE STUDENT TWO', '', 'Trainer Name',
+        18, 12, 14, 38, 8, 30, 88, 'YES', 'NO', 'ACTIVE', 'PASSED', 'SIGNED', 'YES', '2026-01-15', '', '',
+      ],
     ];
     const wsMem = XLSX.utils.aoa_to_sheet(memData);
     wsMem['!cols'] = [
-      { wch: 30 }, { wch: 16 }, { wch: 14 }, { wch: 20 },
+      { wch: 24 }, { wch: 30 }, { wch: 10 }, { wch: 20 },
       { wch: 12 }, { wch: 10 }, { wch: 12 }, { wch: 12 }, { wch: 14 },
       { wch: 10 }, { wch: 14 }, { wch: 16 }, { wch: 20 },
-      { wch: 12 }, { wch: 12 }, { wch: 28 }, { wch: 16 }, { wch: 22 }
+      { wch: 12 }, { wch: 12 }, { wch: 14 }, { wch: 20 }, { wch: 14 }, { wch: 22 }, { wch: 28 },
     ];
-    XLSX.utils.book_append_sheet(wb, wsMem, 'MEMBERSHIP GRADES');
+    XLSX.utils.book_append_sheet(wb, wsMem, 'Membership (MEM-100)');
 
-    // ── 4. MIT GRADES SHEET ─────────────────────────────────────────
+    // ── 3. MIT (MIT-200) SHEET ───────────────────────────────────────────────
     const mitData = [
+      ['MIT — MIT-200 Class Records'],
+      ['BATCH [CODE]. [MONTH, YEAR]'],
       [
-        'FULL NAME', 'ID CARD NO', 'CLASS GROUP', 'TRAINERS',
-        'MIDTERM TEST', 'INTERACTIONS', 'BIBLE STUDY', 'ASSIGNMENT', 'ATTENDANCE',
-        'CTH', 'COMMUNITY SERVICE', 'EVANGELISM', 'PRESENTATION', 'FINAL EXAM',
-        'FINAL GRADES', 'STATUS', 'COMMENTS', 'DEPARTMENT'
+        'CHARTER MEMBERSHIP  ID NO.',
+        ' NAMES',
+        'CLASS ',
+        'TRAINERS',
+        'MIDTERM TEST',
+        'INTERACTIONS',
+        'BIBLE STUDY',
+        'ASSIGNMENT',
+        'ATTENDANCE',
+        'CITH',
+        'COMMUNITY SERVICE',
+        'EVANGELISM',
+        'PRESENTATION',
+        'FINAL EXAM',
+        'FINAL GRADES',
+        'STATUS',
+        'DEPARTMENT',
+        'DEPT. CONFIRMATION',
+        'FIRST TIMER (YES/NO)',
+        'DATE  JOINED',
+        'COMMENTS',
       ],
       [
-        'ADEBAYO OLUWASEUN DANIEL', 'CARD-001', 'MIT Alpha', 'Evang. Paul',
-        20, 10, 10, 10, 10, 10, 10, 10, 10, 40, 90, 'PASSED', 'Great dedication', 'Ushering'
-      ]
+        '', 'SAMPLE STUDENT TWO', '', 'Trainer Name',
+        20, 10, 10, 10, 10, 10, 10, 10, 10, 40, 90, 'PASSED', 'Ushering', 'YES', 'NO', '', 'Great dedication',
+      ],
     ];
     const wsMit = XLSX.utils.aoa_to_sheet(mitData);
     wsMit['!cols'] = [
-      { wch: 30 }, { wch: 16 }, { wch: 14 }, { wch: 20 },
+      { wch: 24 }, { wch: 30 }, { wch: 10 }, { wch: 20 },
       { wch: 14 }, { wch: 14 }, { wch: 13 }, { wch: 13 }, { wch: 12 },
       { wch: 10 }, { wch: 18 }, { wch: 13 }, { wch: 14 }, { wch: 12 },
-      { wch: 14 }, { wch: 12 }, { wch: 28 }, { wch: 18 }
+      { wch: 14 }, { wch: 12 }, { wch: 18 }, { wch: 18 }, { wch: 20 }, { wch: 14 }, { wch: 28 },
     ];
-    XLSX.utils.book_append_sheet(wb, wsMit, 'MIT GRADES');
+    XLSX.utils.book_append_sheet(wb, wsMit, 'MIT (MIT-200)');
 
-    // ── 5. PROCLAIMERS GRADES SHEET ────────────────────────────────
+    // ── 4. PROCLAIMERS (PRO-300) SHEET ───────────────────────────────────────
     const procData = [
+      ['PROCLAIMERS — PRO-300 Class Records'],
+      ['BATCH [CODE]. [MONTH, YEAR]'],
       [
-        'FULL NAME', 'STUDENT ID', 'CLASS', 'TRAINER',
-        'CIH', 'ATTENDANCE', 'ASSESSMENT', 'PRESENTATION', 'PROJECT',
-        'INFLUENCE', 'ATTENDANCE', 'FINAL GRADES', '(RELEASED)', 'COMMENTS', 'DEPARTMENT'
+        'CHARTER MEMBERSHIP  ID NO.',
+        ' NAMES',
+        'CLASS ',
+        'TRAINERS',
+        'DEPARTMENT/MINISTRY',
+        'CITH',
+        'ATTENDANCE',
+        'ASSESSMENT',
+        'PRESENTATION',
+        'PROJECT',
+        'MT.OF INFLUENCE',
+        'SEMINAR ATTENDANCE',
+        'FINAL GRADES',
+        'STATUS (RELEASED)',
+        'FIRST TIMER (YES/NO)',
+        'DATE JOINED',
+        'COMMENTS',
       ],
       [
-        'ADEBAYO OLUWASEUN DANIEL', 'ATS-056-0001', 'Proc 1', 'Pastor Grace',
-        10, 15, 15, 10, 40, 10, 10, 95, 'PASSED', 'Completed seminar project', 'Media'
-      ]
+        '', 'SAMPLE STUDENT THREE', '', 'Trainer Name',
+        'Media', 10, 15, 15, 10, 40, 10, 10, 95, 'RELEASED', 'NO', '', 'Completed project',
+      ],
     ];
     const wsProc = XLSX.utils.aoa_to_sheet(procData);
     wsProc['!cols'] = [
-      { wch: 30 }, { wch: 18 }, { wch: 10 }, { wch: 20 },
-      { wch: 10 }, { wch: 14 }, { wch: 16 }, { wch: 16 }, { wch: 12 },
-      { wch: 18 }, { wch: 16 }, { wch: 14 }, { wch: 14 }, { wch: 28 }, { wch: 18 }
+      { wch: 24 }, { wch: 30 }, { wch: 10 }, { wch: 20 },
+      { wch: 22 }, { wch: 10 }, { wch: 14 }, { wch: 16 }, { wch: 16 }, { wch: 12 },
+      { wch: 18 }, { wch: 18 }, { wch: 14 }, { wch: 18 }, { wch: 20 }, { wch: 14 }, { wch: 28 },
     ];
-    XLSX.utils.book_append_sheet(wb, wsProc, 'PROCLAIMERS GRADES');
+    XLSX.utils.book_append_sheet(wb, wsProc, 'Proclaimers (PRO-300)');
 
     const fileBuffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
 

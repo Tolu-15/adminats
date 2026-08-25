@@ -84,6 +84,7 @@ export async function POST(request) {
       state_of_origin: body.state_of_origin || null,
       local_government: body.local_government || null,
       nationality: body.nationality || null,
+      country_of_residence: body.country_of_residence || null,
       education: body.education || null,
       born_again: body.born_again || null,
       born_again_details: body.born_again_details || null,

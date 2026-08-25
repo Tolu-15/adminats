@@ -100,6 +100,10 @@ export default function RegistrationForm({
         <input type="text" value={form.nationality} onChange={(e) => update('nationality', e.target.value)} />
       </div>
       <div className="field">
+        <label>Country of Residence</label>
+        <input type="text" placeholder="e.g. Nigeria, United Kingdom, United States, Canada, etc." value={form.country_of_residence || ''} onChange={(e) => update('country_of_residence', e.target.value)} />
+      </div>
+      <div className="field">
         <label>Educational Background</label>
         <select value={form.education} onChange={(e) => update('education', e.target.value)}>
           <option value="">Select…</option>

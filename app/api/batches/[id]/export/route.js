@@ -49,7 +49,7 @@ export async function GET(request, { params }) {
     const ws_data = [
       ['MEMBERSHIP GRADES', '', '', '', '', '', '', '', '', '', `${(batch.batch_name || '').toUpperCase()}`, '', '', '', '', '', '', '', ''],
       [
-        'STUDENT NAME', 'STUDENT ID', 'CARD NUMBER', 'CLASS', 'TRAINERS',
+        'STUDENT NAME', 'STUDENT ID', 'CHARTER MEMBERSHIP ID CARD No.', 'CLASS', 'TRAINERS',
         'ATTENDANCE', 'TEST', 'ASSIGNMENT', 'ASSESSMENT', 'PRESENTATION',
         'EXAM', 'FINAL GRADES', 'WATER BAPTISM', 'HOLY SPIRIT BAPTISM',
         'PORTAL', 'STATUS', 'COMMENTS', 'COVENANT DEED', 'ID CARD COLLECTED DATE',
@@ -105,7 +105,7 @@ export async function GET(request, { params }) {
     const ws_data = [
       ['MIT GRADES', '', '', '', '', '', '', '', '', '', '', `${(batch.batch_name || '').toUpperCase()}`, '', '', '', '', '', '', '', '', '', ''],
       [
-        'STUDENT NAME', 'STUDENT ID', 'CARD NUMBER', 'CLASS', 'TRAINERS',
+        'STUDENT NAME', 'STUDENT ID', 'CHARTER MEMBERSHIP ID CARD No.', 'CLASS', 'TRAINERS',
         'MIDTERM TEST', 'INTERACTIONS', 'BIBLE STUDY', 'ASSIGNMENT', 'ATTENDANCE',
         'CTH', 'COMMUNITY SERVICE', 'EVANGELISM', 'PRESENTATION', 'FINAL EXAM',
         'FINAL GRADES', 'STATUS', 'COMMENTS', 'DEPARTMENT', 'DEPARTMENT CONFIRMATION',

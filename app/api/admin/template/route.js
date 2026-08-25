@@ -27,7 +27,7 @@ export async function GET(request) {
       ['BATCH [CODE]. [MONTH, YEAR]'],
       [
         'REG. NO.',
-        'CHARTER MEMBERSHIP ID NO.',
+        'CHARTER MEMBERSHIP ID CARD No.',
         'NAMES',
         'GENDER',
         'DATE OF BIRTH',
@@ -81,7 +81,7 @@ export async function GET(request) {
       ['MEMBERSHIP — MEM-100 Class Records'],
       ['BATCH [CODE]. [MONTH, YEAR]'],
       [
-        'CHARTER MEMBERSHIP  ID NO.',
+        'CHARTER MEMBERSHIP ID CARD No.',
         ' NAMES',
         'CLASS ',
         'TRAINERS',
@@ -125,7 +125,7 @@ export async function GET(request) {
       ['MIT — MIT-200 Class Records'],
       ['BATCH [CODE]. [MONTH, YEAR]'],
       [
-        'CHARTER MEMBERSHIP  ID NO.',
+        'CHARTER MEMBERSHIP ID CARD No.',
         ' NAMES',
         'CLASS ',
         'TRAINERS',
@@ -166,7 +166,7 @@ export async function GET(request) {
       ['PROCLAIMERS — PRO-300 Class Records'],
       ['BATCH [CODE]. [MONTH, YEAR]'],
       [
-        'CHARTER MEMBERSHIP  ID NO.',
+        'CHARTER MEMBERSHIP ID CARD No.',
         ' NAMES',
         'CLASS ',
         'TRAINERS',

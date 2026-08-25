@@ -8,6 +8,7 @@ export default function StudentTable({ students, searchQuery = '' }) {
         (s) =>
           `${s.surname} ${s.first_name} ${s.middle_name || ''}`.toLowerCase().includes(q) ||
           (s.student_unique_id || '').toLowerCase().includes(q) ||
+          (s.card_number || '').toLowerCase().includes(q) ||
           (s.email || '').toLowerCase().includes(q)
       )
     : students;
@@ -34,6 +35,7 @@ export default function StudentTable({ students, searchQuery = '' }) {
         <tr>
           <th>Photo</th>
           <th>Student ID</th>
+          <th>CHARTER MEMBERSHIP ID CARD No:</th>
           <th>Name</th>
           <th>Email</th>
           <th>Phone</th>
@@ -62,6 +64,13 @@ export default function StudentTable({ students, searchQuery = '' }) {
                 )}
               </td>
               <td><span className="badge badge-gold">{s.student_unique_id}</span></td>
+              <td>
+                {s.card_number ? (
+                  <span style={{ fontFamily: 'monospace', fontWeight: 600, color: 'var(--navy)' }}>{s.card_number}</span>
+                ) : (
+                  <span className="muted text-sm">—</span>
+                )}
+              </td>
               <td>
                 <Link href={`/admin/students/${s.id}`} style={{ fontWeight: 600, color: 'var(--navy)' }}>
                   {s.surname} {s.first_name}

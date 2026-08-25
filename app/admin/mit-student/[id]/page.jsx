@@ -108,13 +108,14 @@ export default function MitStudentDetail() {
               <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16 }}>
                 {[
                   ['Membership ID', s?.student_unique_id],
-                  ['Card Number', s?.card_number || '—'],
+                  ['CHARTER MEMBERSHIP ID CARD No:', s?.card_number || '—'],
                   ['Email', s?.email],
                   ['Phone', s?.phone],
                   ['Gender', s?.gender],
                   ['Date of Birth', s?.date_of_birth],
                   ['Church Join Date', s?.church_join_date],
                   ['State of Origin', s?.state_of_origin],
+                  ['Country of Residence', s?.country_of_residence],
                   ['Education', s?.education],
                   ['MIT Department', data?.department || '—'],
                 ].map(([label, value]) => value && (

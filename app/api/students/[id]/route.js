@@ -100,7 +100,7 @@ export async function PATCH(request, { params }) {
     // Identity
     'card_number', 'surname', 'first_name', 'middle_name', 'gender', 'date_of_birth',
     // Contact & Origin
-    'email', 'phone', 'home_address', 'state_of_origin', 'local_government', 'nationality',
+    'email', 'phone', 'home_address', 'state_of_origin', 'local_government', 'nationality', 'country_of_residence',
     // Education & other
     'education', 'challenges', 'church_join_date',
     // Next of kin

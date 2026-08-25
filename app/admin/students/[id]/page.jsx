@@ -107,6 +107,7 @@ export default function StudentProfile() {
         state_of_origin: s.state_of_origin || '',
         local_government: s.local_government || '',
         nationality: s.nationality || '',
+        country_of_residence: s.country_of_residence || '',
         education: s.education || '',
         challenges: s.challenges || '',
         church_join_date: s.church_join_date || '',
@@ -247,6 +248,7 @@ export default function StudentProfile() {
       state_of_origin: s.state_of_origin || '',
       local_government: s.local_government || '',
       nationality: s.nationality || '',
+      country_of_residence: s.country_of_residence || '',
       education: s.education || '',
       challenges: s.challenges || '',
       church_join_date: s.church_join_date || '',
@@ -452,7 +454,7 @@ export default function StudentProfile() {
               <div className="section-title">Identity &amp; Card</div>
               <div className="profile-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div>
-                  <span className="profile-row-label">Card Number: </span>
+                  <span className="profile-row-label">CHARTER MEMBERSHIP ID CARD No: </span>
                   {editingCard ? (
                     <form onSubmit={handleSaveCard} style={{ display: 'inline-flex', gap: 6, alignItems: 'center', marginTop: 4 }}>
                       <input type="text" value={cardNumber} onChange={(e) => setCardNumber(e.target.value)} placeholder="e.g. CARD-12345" style={{ padding: '4px 8px', fontSize: '0.85rem', width: 130 }} autoFocus />
@@ -479,6 +481,7 @@ export default function StudentProfile() {
               <ProfileRow label="State of Origin" value={student.state_of_origin} />
               <ProfileRow label="Local Government (LGA)" value={student.local_government} />
               <ProfileRow label="Nationality" value={student.nationality} />
+              <ProfileRow label="Country of Residence" value={student.country_of_residence} />
 
               <div className="section-title">Personal Details</div>
               <ProfileRow label="First Timer" value={isFirstTimer ? '⭐ Yes — First Timer' : 'No — Regular Member'} />
@@ -813,6 +816,7 @@ export default function StudentProfile() {
                   { key: 'state_of_origin', label: 'State of Origin', type: 'text' },
                   { key: 'local_government', label: 'Local Government (LGA)', type: 'text' },
                   { key: 'nationality', label: 'Nationality', type: 'text' },
+                  { key: 'country_of_residence', label: 'Country of Residence', type: 'text' },
                 ].map(({ key, label, type }) => (
                   <div key={key} className="field" style={{ marginBottom: 0 }}>
                     <label>{label}</label>

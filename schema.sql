@@ -34,6 +34,7 @@ create table if not exists students (
   next_of_kin_address text,
   state_of_origin text,
   nationality text,
+  country_of_residence text,
   education text check (education in (
     'Basic School Leaving Certificate',
     'Secondary School Leaving Certificate',
@@ -341,6 +342,7 @@ alter table student_grades add column if not exists id_card_collected_date date;
 alter table students add column if not exists local_government text;
 alter table students add column if not exists next_of_kin_relationship text;
 alter table students add column if not exists next_of_kin_phone text;
+alter table students add column if not exists country_of_residence text;
 
 -- ============================================================
 -- [NEW] PROCLAIMERS GRADES — EXTRA SCORE & FIRST TIMER FIELDS

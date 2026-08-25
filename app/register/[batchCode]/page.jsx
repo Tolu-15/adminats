@@ -667,7 +667,7 @@ export default function RegisterPage() {
             {lookupStep === 1 && (
               <form onSubmit={handleLookup}>
                 <div className="field">
-                  <label style={{ fontWeight: 600, color: 'var(--navy)' }}>Student ID or Card Number *</label>
+                  <label style={{ fontWeight: 600, color: 'var(--navy)' }}>Student ID or CHARTER MEMBERSHIP ID CARD No: *</label>
                   <p className="muted text-sm" style={{ marginBottom: 10 }}>
                     Enter your Membership Student ID (e.g. ATS-055-0001) or Membership Card Number to register for {programme}.
                   </p>

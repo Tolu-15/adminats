@@ -181,7 +181,7 @@ export default function StudentViewerProfile() {
             </div>
 
             <div className="section-title">Identity &amp; Card</div>
-            <ProfileRow label="Card Number" value={student.card_number || 'Not assigned'} />
+            <ProfileRow label="CHARTER MEMBERSHIP ID CARD No:" value={student.card_number || 'Not assigned'} />
 
             <div className="section-title">Contact Information</div>
             <ProfileRow label="Email" value={student.email} />
@@ -190,6 +190,7 @@ export default function StudentViewerProfile() {
             <ProfileRow label="State of Origin" value={student.state_of_origin} />
             <ProfileRow label="Local Government (LGA)" value={student.local_government} />
             <ProfileRow label="Nationality" value={student.nationality} />
+            <ProfileRow label="Country of Residence" value={student.country_of_residence} />
 
             <div className="section-title">Personal Details</div>
             <ProfileRow label="Date of Birth" value={student.date_of_birth} />

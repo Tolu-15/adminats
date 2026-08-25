@@ -161,6 +161,9 @@ export async function POST(request, { params }) {
   // Helper: resolve a student ID from the grade sheet card-no column or name cache
   function resolveCardNo(r) {
     return toStr(
+      r['CHARTER MEMBERSHIP ID CARD NO.'] ||
+      r['CHARTER MEMBERSHIP ID CARD NO'] ||
+      r['CHARTER MEMBERSHIP ID CARD No:'] ||
       r['CHARTER MEMBERSHIP ID NO.'] ||
       r['CHARTER MEMBERSHIP  ID NO.'] ||
       r['ID CARD NO'] ||
@@ -206,6 +209,7 @@ export async function POST(request, { params }) {
         const address  = toStr(r['RESIDENTIAL ADDRESS'] || r['ADDRESS']);
         const stateOfOrigin = toStr(r['STATE OF ORIGIN']);
         const nationality   = toStr(r['NATIONALITY']);
+        const countryOfResidence = toStr(r['COUNTRY OF RESIDENCE'] || r['COUNTRY']);
 
         // New fields added to updated template
         const localGovt             = toStr(r['HOME TOWN / LGA'] || r['LGA']);
@@ -258,6 +262,7 @@ export async function POST(request, { params }) {
                 batch_id: batchId,
                 ...(cardNo ? { card_number: cardNo } : {}),
                 ...(phone && phone !== '00000000000' ? { phone } : {}),
+                ...(countryOfResidence ? { country_of_residence: countryOfResidence } : {}),
                 ...(localGovt ? { local_government: localGovt } : {}),
                 ...(nextOfKin ? { next_of_kin: nextOfKin } : {}),
                 ...(nextOfKinPhone ? { next_of_kin_phone: nextOfKinPhone } : {}),
@@ -299,7 +304,8 @@ export async function POST(request, { params }) {
           // New student — create with collision fallback
           let insertSuccess = false;
           let attempts = 0;
-          let preferredId = cardNo;
+          const regNo = toStr(r['REG. NO.'] || r['REG. NO'] || r['REG NO'] || r['STUDENT ID']);
+          let preferredId = (regNo && regNo.toUpperCase().startsWith('ATS')) ? regNo : null;
 
           while (!insertSuccess && attempts < 5) {
             attempts++;
@@ -319,6 +325,7 @@ export async function POST(request, { params }) {
               home_address: address,
               state_of_origin: stateOfOrigin,
               nationality: nationality,
+              country_of_residence: countryOfResidence,
               card_number: cardNo,
               ...(localGovt ? { local_government: localGovt } : {}),
               ...(nextOfKin ? { next_of_kin: nextOfKin } : {}),

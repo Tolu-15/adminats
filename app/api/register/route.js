@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../lib/supabaseAdmin';
-import { appendStudentToSheet } from '../../../lib/googleSheets';
 
 export async function POST(request) {
   try {
@@ -11,7 +10,7 @@ export async function POST(request) {
       return NextResponse.json({ error: 'Missing required fields.' }, { status: 400 });
     }
 
-    // Age validation — minimum 16 years based on date_of_birth (when provided)
+    // Age validation — minimum 16 years based on date_of_birth
     if (body.date_of_birth) {
       const today = new Date();
       const dob = new Date(body.date_of_birth);
@@ -40,8 +39,7 @@ export async function POST(request) {
       return NextResponse.json({ error: 'Invalid or inactive batch.' }, { status: 400 });
     }
 
-    // Generate student ID starting from 0001 for EACH batch
-    // Format: ATS-[BATCH_CODE]-NNNN  e.g. ATS-056-0001
+    // Generate student ID format: ATS-[BATCH_CODE]-NNNN  e.g. ATS-056-0001
     const { data: existingStudents } = await supabaseAdmin
       .from('students')
       .select('student_unique_id')
@@ -66,7 +64,8 @@ export async function POST(request) {
     const batchTag = numMatch ? numMatch[0] : (batch.batch_name || 'ATS').replace(/[^a-zA-Z0-9]/g, '').slice(0, 6).toUpperCase();
     const student_unique_id = `ATS-${batchTag}-${seqStr}`;
 
-    const record = {
+    // 1. Core student record
+    const studentRecord = {
       student_unique_id,
       batch_id,
       surname: (body.surname || '').toUpperCase().trim(),
@@ -76,72 +75,67 @@ export async function POST(request) {
       phone: body.phone,
       date_of_birth: body.date_of_birth || null,
       gender: body.gender,
-      is_first_timer: body.is_first_timer === 'Yes',
       home_address: body.home_address || null,
-      next_of_kin: body.next_of_kin || null,
-      next_of_kin_relationship: body.next_of_kin_relationship || null,
-      next_of_kin_phone: body.next_of_kin_phone || null,
-      state_of_origin: body.state_of_origin || null,
       local_government: body.local_government || null,
+      state_of_origin: body.state_of_origin || null,
       nationality: body.nationality || null,
-      country_of_residence: body.country_of_residence || null,
       education: body.education || null,
-      born_again: body.born_again || null,
-      born_again_details: body.born_again_details || null,
-      baptized_water: body.baptized_water === 'Yes',
-      baptized_water_details: body.baptized_water_details || null,
-      baptized_holy_spirit: body.baptized_holy_spirit === 'Yes',
-      baptized_holy_spirit_details: body.baptized_holy_spirit_details || null,
       church_join_date: body.church_join_date || null,
       challenges: body.challenges || null,
       photo_url: body.photo_url || null,
     };
 
-    let { data: student, error: insertError } = await supabaseAdmin
+    const { data: student, error: insertError } = await supabaseAdmin
       .from('students')
-      .insert(record)
+      .insert(studentRecord)
       .select()
       .single();
 
-    // Fallback if Supabase database doesn't have the 3 new columns yet
-    if (insertError && (insertError.message?.includes('column') || insertError.code === 'PGRST204' || insertError.message?.includes('schema'))) {
-      console.warn('Supabase DB missing new columns, retrying insert with legacy schema compatibility:', insertError.message);
-      const legacyRecord = { ...record };
-      delete legacyRecord.local_government;
-      delete legacyRecord.next_of_kin_relationship;
-      delete legacyRecord.next_of_kin_phone;
+    if (insertError) throw insertError;
 
-      // Preserve next of kin relationship/phone inside next_of_kin_address
-      if (record.next_of_kin_relationship || record.next_of_kin_phone) {
-        legacyRecord.next_of_kin_address = [
-          record.next_of_kin_relationship ? `Rel: ${record.next_of_kin_relationship}` : null,
-          record.next_of_kin_phone ? `Phone: ${record.next_of_kin_phone}` : null,
-        ].filter(Boolean).join(' | ');
-      }
-
-      const res2 = await supabaseAdmin
-        .from('students')
-        .insert(legacyRecord)
-        .select()
-        .single();
-
-      if (res2.error) throw res2.error;
-      student = res2.data;
-    } else if (insertError) {
-      throw insertError;
+    // 2. Next of kin record
+    if (body.next_of_kin || body.next_of_kin_phone || body.next_of_kin_address) {
+      await supabaseAdmin.from('student_next_of_kin').insert({
+        student_id: student.id,
+        name: body.next_of_kin || null,
+        relationship: body.next_of_kin_relationship || null,
+        phone: body.next_of_kin_phone || null,
+        address: body.next_of_kin_address || null,
+      });
     }
 
-    // Sync to Google Sheets — don't fail registration if this errors,
-    // just log it, since the source of truth is Supabase.
-    try {
-      await appendStudentToSheet(student, batch.batch_name);
-    } catch (sheetErr) {
-      console.error('Google Sheets sync failed:', sheetErr.message);
-    }
+    // 3. Spiritual profile record
+    await supabaseAdmin.from('student_spiritual_profile').insert({
+      student_id: student.id,
+      born_again: body.born_again === 'Yes' || body.born_again === true,
+      born_again_details: body.born_again_details || null,
+      baptized_water: body.baptized_water === 'Yes' || body.baptized_water === true,
+      baptized_water_details: body.baptized_water_details || null,
+      baptized_holy_spirit: body.baptized_holy_spirit === 'Yes' || body.baptized_holy_spirit === true,
+      baptized_holy_spirit_details: body.baptized_holy_spirit_details || null,
+      is_first_timer: body.is_first_timer === 'Yes' || body.is_first_timer === true,
+    });
+
+    // 4. Registration record (stage: membership)
+    const { data: reg, error: regErr } = await supabaseAdmin
+      .from('registrations')
+      .insert({
+        student_id: student.id,
+        batch_id,
+        stage: 'membership',
+      })
+      .select()
+      .single();
+
+    if (regErr) throw regErr;
+
+    // 5. Blank membership grades record
+    await supabaseAdmin.from('membership_grades').insert({
+      registration_id: reg.id,
+    });
 
     return NextResponse.json({ student });
   } catch (err) {
-    console.error(err);
     return NextResponse.json({ error: err.message || 'Registration failed.' }, { status: 500 });
   }
 }

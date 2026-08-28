@@ -1,14 +1,6 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../../lib/supabaseAdmin';
 
-/**
- * POST /api/membership/retake
- * Body: { batch_id, student_unique_id_or_card }
- *
- * Public route — used when a student wants to re-enrol in Membership for a new batch.
- * They must already exist in the students table.
- * A new student_grades row is created (or the existing one reset) for the new batch.
- */
 export async function POST(request) {
   let body;
   try { body = await request.json(); } catch {
@@ -23,7 +15,7 @@ export async function POST(request) {
 
   const q = query.trim();
 
-  // 1. Verify the batch exists and is active
+  // 1. Verify batch exists and is active
   const { data: batch, error: batchErr } = await supabaseAdmin
     .from('batches')
     .select('id, batch_code, batch_name, programme_type, is_active')
@@ -33,7 +25,7 @@ export async function POST(request) {
   if (batchErr || !batch) return NextResponse.json({ error: 'Batch not found.' }, { status: 404 });
   if (!batch.is_active) return NextResponse.json({ error: 'This batch is no longer active.' }, { status: 400 });
 
-  // 2. Find the existing student by student_unique_id or card_number
+  // 2. Find student by ID or card number
   const { data: student, error: sErr } = await supabaseAdmin
     .from('students')
     .select('id, first_name, surname, student_unique_id, card_number, batch_id')
@@ -43,31 +35,59 @@ export async function POST(request) {
   if (sErr) return NextResponse.json({ error: sErr.message }, { status: 500 });
   if (!student) return NextResponse.json({ error: 'No student found with that ID or card number. Please check and try again.' }, { status: 404 });
 
-  // 3. Fetch their previous membership grade
-  const { data: existingGrade } = await supabaseAdmin
-    .from('student_grades')
-    .select('id, status')
+  // 3. Get existing membership registration & grade
+  let { data: memReg } = await supabaseAdmin
+    .from('registrations')
+    .select('id')
     .eq('student_id', student.id)
+    .eq('stage', 'membership')
     .maybeSingle();
 
-  const prevStatus = (existingGrade?.status || '').toUpperCase();
+  let prevStatus = '';
+  if (memReg) {
+    const { data: existingGrade } = await supabaseAdmin
+      .from('membership_grades')
+      .select('status')
+      .eq('registration_id', memReg.id)
+      .maybeSingle();
 
-  // Block re-enrolment if they PASSED — they should go to MIT instead
+    prevStatus = (existingGrade?.status || '').toUpperCase();
+  }
+
   if (prevStatus === 'PASSED') {
     return NextResponse.json({
       error: `${student.first_name} ${student.surname} has already PASSED Membership. They should register for MIT instead.`,
     }, { status: 409 });
   }
 
-  // 4. Update their batch_id to the new batch (re-enrol)
+  // 4. Update student's current batch_id
   await supabaseAdmin
     .from('students')
     .update({ batch_id })
     .eq('id', student.id);
 
-  // 5. Reset their grade record for the fresh attempt (upsert blank grades, mark as retake)
+  // 5. Upsert registration for Membership stage
+  if (!memReg) {
+    const { data: newReg } = await supabaseAdmin
+      .from('registrations')
+      .insert({
+        student_id: student.id,
+        batch_id,
+        stage: 'membership',
+      })
+      .select('id')
+      .single();
+    memReg = newReg;
+  } else {
+    await supabaseAdmin
+      .from('registrations')
+      .update({ batch_id })
+      .eq('id', memReg.id);
+  }
+
+  // 6. Reset membership grade record for fresh attempt
   const gradePayload = {
-    student_id: student.id,
+    registration_id: memReg.id,
     class: null,
     trainer: null,
     attendance: null,
@@ -86,11 +106,9 @@ export async function POST(request) {
     updated_at: new Date().toISOString(),
   };
 
-  if (existingGrade) {
-    await supabaseAdmin.from('student_grades').update(gradePayload).eq('id', existingGrade.id);
-  } else {
-    await supabaseAdmin.from('student_grades').insert(gradePayload);
-  }
+  await supabaseAdmin
+    .from('membership_grades')
+    .upsert(gradePayload, { onConflict: 'registration_id' });
 
   return NextResponse.json({
     success: true,

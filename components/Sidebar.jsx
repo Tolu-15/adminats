@@ -7,23 +7,31 @@ import { supabase } from '../lib/supabaseClient';
 import Logo from './Logo';
 
 const NavItem = ({ href, icon, label, active, onClick }) => (
-  <Link href={href} className={`${active ? 'active' : ''}`} onClick={onClick}>
+  <Link href={href} className={`${active ? 'active' : ''}`} onClick={(e) => onClick && onClick(e)}>
     <span className="nav-icon">{icon}</span>
     {label}
   </Link>
 );
 
-export default function Sidebar() {
+export default function Sidebar({ onNavigate }) {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
 
-  async function signOut() {
+  async function signOut(e) {
+    if (onNavigate && onNavigate(e) === false) return;
     await supabase.auth.signOut();
     window.location.href = '/admin/login';
   }
 
   const toggleMobile = () => setMobileOpen((v) => !v);
   const closeMobile = () => setMobileOpen(false);
+
+  const handleNavClick = (e) => {
+    closeMobile();
+    if (onNavigate) {
+      onNavigate(e);
+    }
+  };
 
   return (
     <>
@@ -61,14 +69,14 @@ export default function Sidebar() {
             icon={<DashboardIcon />}
             label="Dashboard"
             active={pathname === '/admin'}
-            onClick={closeMobile}
+            onClick={handleNavClick}
           />
           <NavItem
             href="/admin/search"
             icon={<SearchIcon />}
             label="Search Students"
             active={pathname === '/admin/search'}
-            onClick={closeMobile}
+            onClick={handleNavClick}
           />
         </nav>
 
@@ -79,7 +87,7 @@ export default function Sidebar() {
             icon={<BatchIcon />}
             label="All Batches"
             active={false}
-            onClick={closeMobile}
+            onClick={handleNavClick}
           />
         </nav>
 

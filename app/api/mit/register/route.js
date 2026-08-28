@@ -1,15 +1,6 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../../lib/supabaseAdmin';
 
-/**
- * POST /api/mit/register
- * Body: { batch_id, membership_student_id, department }
- *
- * Public route — called from the public MIT registration page.
- * Re-validates eligibility (PASSED Membership) server-side.
- * Allows retake: if student previously FAILED or has incomplete MIT in another batch,
- * they can register for a new MIT batch.
- */
 export async function POST(request) {
   let body;
   try { body = await request.json(); } catch {
@@ -22,7 +13,7 @@ export async function POST(request) {
     return NextResponse.json({ error: 'batch_id and membership_student_id are required.' }, { status: 400 });
   }
 
-  // 1. Verify the batch exists
+  // 1. Verify the batch exists and is active
   const { data: batch, error: batchErr } = await supabaseAdmin
     .from('batches')
     .select('id, batch_code, batch_name, programme_type, is_active')
@@ -32,7 +23,7 @@ export async function POST(request) {
   if (batchErr || !batch) return NextResponse.json({ error: 'Batch not found.' }, { status: 404 });
   if (!batch.is_active) return NextResponse.json({ error: 'This batch is no longer active.' }, { status: 400 });
 
-  // 2. Verify the student exists
+  // 2. Verify student exists
   const { data: student, error: sErr } = await supabaseAdmin
     .from('students')
     .select('id, first_name, surname, church_join_date')
@@ -42,35 +33,47 @@ export async function POST(request) {
   if (sErr || !student) return NextResponse.json({ error: 'Student not found.' }, { status: 404 });
 
   // 3. Check Membership PASSED
-  const { data: grade } = await supabaseAdmin
-    .from('student_grades')
-    .select('status')
+  const { data: memReg } = await supabaseAdmin
+    .from('registrations')
+    .select('id')
     .eq('student_id', membership_student_id)
+    .eq('stage', 'membership')
     .maybeSingle();
 
-  const statusRaw = (grade?.status || '').toString().trim().toUpperCase();
-  const hasPassed = statusRaw === 'PASSED';
+  let hasPassed = false;
+  if (memReg) {
+    const { data: grade } = await supabaseAdmin
+      .from('membership_grades')
+      .select('status')
+      .eq('registration_id', memReg.id)
+      .maybeSingle();
+    const statusRaw = (grade?.status || '').toString().trim().toUpperCase();
+    hasPassed = statusRaw === 'PASSED';
+  }
+
   if (!hasPassed) {
     return NextResponse.json({ error: 'Student has not passed Membership. MIT registration denied.' }, { status: 403 });
   }
 
-  // 4. Check not already registered in THIS specific MIT batch (prevent duplicate in same batch)
+  // 4. Check if already registered for MIT in THIS batch
   const { data: existing } = await supabaseAdmin
-    .from('mit_registrations')
+    .from('registrations')
     .select('id')
+    .eq('student_id', membership_student_id)
+    .eq('stage', 'mit')
     .eq('batch_id', batch_id)
-    .eq('membership_student_id', membership_student_id)
     .maybeSingle();
 
   if (existing) {
     return NextResponse.json({ error: 'This student is already registered for this MIT batch.' }, { status: 409 });
   }
 
-  // 5. Check for any prior MIT history (for retake tracking)
+  // 5. Check for prior MIT registrations (for retake comments)
   const { data: priorMit } = await supabaseAdmin
-    .from('mit_registrations')
+    .from('registrations')
     .select('id, batch_id, mit_grades(status)')
-    .eq('membership_student_id', membership_student_id);
+    .eq('student_id', membership_student_id)
+    .eq('stage', 'mit');
 
   const isRetake = priorMit && priorMit.length > 0;
   const prevStatuses = (priorMit || []).map((r) => {
@@ -78,28 +81,28 @@ export async function POST(request) {
     return (g?.status || 'NOT GRADED').toUpperCase();
   });
 
-  // 6. Create the MIT registration
+  // 6. Create MIT registration in registrations table (upsert/insert if retake allows re-enrollment)
   const { data: reg, error: regErr } = await supabaseAdmin
-    .from('mit_registrations')
-    .insert({
+    .from('registrations')
+    .upsert({
+      student_id: membership_student_id,
       batch_id,
-      membership_student_id,
+      stage: 'mit',
       department: department?.trim() || null,
-    })
+    }, { onConflict: 'student_id,stage' })
     .select()
     .single();
 
   if (regErr) return NextResponse.json({ error: regErr.message }, { status: 500 });
 
-  // 7. Create blank mit_grades record, note retake in comments if applicable
-  await supabaseAdmin.from('mit_grades').insert({
-    mit_registration_id: reg.id,
-    department: department?.trim() || null,
+  // 7. Create/reset mit_grades record
+  await supabaseAdmin.from('mit_grades').upsert({
+    registration_id: reg.id,
     first_timer_date: student.church_join_date || null,
     comments: isRetake
       ? `RETAKE — Previously attempted MIT. Prior status(es): ${prevStatuses.join(', ')}`
       : null,
-  });
+  }, { onConflict: 'registration_id' });
 
   return NextResponse.json({
     success: true,

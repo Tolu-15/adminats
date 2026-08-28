@@ -1,14 +1,6 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../../../../lib/supabaseAdmin';
-
-async function requireAdmin(request) {
-  const authHeader = request.headers.get('authorization') || '';
-  const token = authHeader.replace('Bearer ', '');
-  if (!token) return null;
-  const { data, error } = await supabaseAdmin.auth.getUser(token);
-  if (error || !data.user) return null;
-  return data.user;
-}
+import { requireAdmin } from '../../../../../../lib/requireAdmin';
 
 /**
  * GET /api/proclaimers/registrations/[id]/grades
@@ -17,10 +9,10 @@ export async function GET(request, { params }) {
   const user = await requireAdmin(request);
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const { id } = params;
+  const { id } = await params;
 
   const { data: reg, error } = await supabaseAdmin
-    .from('proclaimers_registrations')
+    .from('registrations')
     .select(`
       *,
       membership_student:students(
@@ -30,6 +22,7 @@ export async function GET(request, { params }) {
       )
     `)
     .eq('id', id)
+    .eq('stage', 'proclaimers')
     .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -38,21 +31,12 @@ export async function GET(request, { params }) {
   const { data: pg } = await supabaseAdmin
     .from('proclaimers_grades')
     .select('*')
-    .eq('proclaimers_registration_id', id)
+    .eq('registration_id', id)
     .maybeSingle();
-
-  // Map database columns back to form fields if needed
-  const mappedGrades = pg ? {
-    ...pg,
-    cih: pg.cih ?? pg.assignment ?? null,
-    project: pg.project ?? pg.exam ?? null,
-    mountain_of_influence: pg.mountain_of_influence ?? null,
-    seminar_attendance: pg.seminar_attendance ?? null,
-  } : null;
 
   const registration = {
     ...reg,
-    proclaimers_grades: mappedGrades ? [mappedGrades] : [],
+    proclaimers_grades: pg ? [pg] : [],
   };
 
   return NextResponse.json({ registration });
@@ -65,70 +49,46 @@ export async function PATCH(request, { params }) {
   const user = await requireAdmin(request);
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const { id } = params;
+  const { id } = await params;
   let body;
   try { body = await request.json(); } catch {
     return NextResponse.json({ error: 'Invalid JSON.' }, { status: 400 });
   }
 
-  // Exact columns existing in database table proclaimers_grades
-  const DB_COLUMNS = [
-    'class', 'trainer', 'attendance', 'assignment', 'assessment',
-    'presentation', 'exam', 'final_grades', 'status', 'comments', 'department'
+  const allowed = [
+    'class', 'trainer', 'cih', 'attendance', 'assessment', 'presentation',
+    'project', 'seminar_attendance', 'final_grades', 'mountain_of_influence',
+    'first_timer', 'first_timer_date', 'status', 'comments',
   ];
 
   const payload = {};
-  for (const key of DB_COLUMNS) {
+  for (const key of allowed) {
     if (key in body) {
       payload[key] = body[key] === '' ? null : body[key];
     }
   }
 
-  // Clean fallback mapping for form fields if DB table has standard schema columns
-  if ('cih' in body && !('assignment' in payload)) {
-    payload.assignment = body.cih === '' ? null : body.cih;
-  }
-  if ('project' in body && !('exam' in payload)) {
-    payload.exam = body.project === '' ? null : body.project;
-  }
-
   payload.updated_at = new Date().toISOString();
 
-  const { data: existingGrade } = await supabaseAdmin
+  const { error: dbError } = await supabaseAdmin
     .from('proclaimers_grades')
-    .select('id')
-    .eq('proclaimers_registration_id', id)
-    .maybeSingle();
-
-  let dbError = null;
-  if (existingGrade) {
-    const { error } = await supabaseAdmin
-      .from('proclaimers_grades')
-      .update(payload)
-      .eq('proclaimers_registration_id', id);
-    dbError = error;
-  } else {
-    const { error } = await supabaseAdmin
-      .from('proclaimers_grades')
-      .insert({ proclaimers_registration_id: id, ...payload });
-    dbError = error;
-  }
+    .upsert({ registration_id: id, ...payload }, { onConflict: 'registration_id' });
 
   if (dbError) {
     return NextResponse.json({ error: dbError.message }, { status: 500 });
   }
 
-  if (payload.department !== undefined) {
+  if (body.department !== undefined) {
     await supabaseAdmin
-      .from('proclaimers_registrations')
-      .update({ department: payload.department })
+      .from('registrations')
+      .update({ department: body.department })
       .eq('id', id);
   }
 
   const { data: updatedGrade } = await supabaseAdmin
     .from('proclaimers_grades')
     .select('*')
-    .eq('proclaimers_registration_id', id)
+    .eq('registration_id', id)
     .maybeSingle();
 
   return NextResponse.json(

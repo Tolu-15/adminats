@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { getImageUrl } from '../lib/getImageUrl';
 
-export default function StudentTable({ students, searchQuery = '' }) {
+export default function StudentTable({ students, searchQuery = '', onNavigate }) {
   const q = searchQuery.trim().toLowerCase();
   const filtered = q
     ? students.filter(
@@ -35,18 +35,22 @@ export default function StudentTable({ students, searchQuery = '' }) {
         <tr>
           <th>Photo</th>
           <th>Student ID</th>
-          <th>CHARTER MEMBERSHIP ID CARD No:</th>
+          <th>Card No</th>
           <th>Name</th>
-          <th>Email</th>
-          <th>Phone</th>
+          <th>Attendance</th>
+          <th>Test</th>
+          <th>Exam</th>
+          <th>Final Grade</th>
           <th>Status</th>
-          <th>Registered</th>
           <th>Actions</th>
         </tr>
       </thead>
       <tbody>
         {filtered.map((s) => {
-          const status = (s.student_grades?.[0]?.status || '').toString().trim().toUpperCase();
+          const g = s.membership_grades?.[0] || {};
+          const status = (g.status || '').toString().trim().toUpperCase();
+          const fullName = [s.surname, s.first_name, s.middle_name].filter(Boolean).join(' ');
+
           return (
             <tr key={s.id}>
               <td>
@@ -72,12 +76,14 @@ export default function StudentTable({ students, searchQuery = '' }) {
                 )}
               </td>
               <td>
-                <Link href={`/admin/students/${s.id}`} style={{ fontWeight: 600, color: 'var(--navy)' }}>
-                  {s.surname} {s.first_name}
+                <Link href={`/admin/students/${s.id}`} onClick={onNavigate} style={{ fontWeight: 600, color: 'var(--navy)' }}>
+                  {fullName}
                 </Link>
               </td>
-              <td className="muted text-sm">{s.email}</td>
-              <td className="muted text-sm">{s.phone}</td>
+              <td>{g.attendance ?? '—'}</td>
+              <td>{g.test ?? '—'}</td>
+              <td>{g.exam ?? '—'}</td>
+              <td><strong>{g.final_grades ?? '—'}</strong></td>
               <td>
                 {status === 'PASSED' ? (
                   <span className="grade-pill passed">PASSED</span>
@@ -89,11 +95,10 @@ export default function StudentTable({ students, searchQuery = '' }) {
                   <span className="grade-pill pending">Pending</span>
                 )}
               </td>
-              <td className="muted text-sm">{new Date(s.created_at).toLocaleDateString()}</td>
               <td>
                 <div style={{ display: 'flex', gap: 6 }}>
-                  <Link href={`/admin/students/${s.id}`} className="btn btn-primary btn-sm">
-                    Edit Grades
+                  <Link href={`/admin/students/${s.id}`} onClick={onNavigate} className="btn btn-primary btn-sm">
+                    View &amp; Edit Grades
                   </Link>
                 </div>
               </td>

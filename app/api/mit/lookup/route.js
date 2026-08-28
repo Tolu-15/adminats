@@ -1,19 +1,12 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../../lib/supabaseAdmin';
 
-/**
- * GET /api/mit/lookup?q=ATS-055-0001
- *   or GET /api/mit/lookup?q=CARD-12345
- *
- * Public route — checks student eligibility for MIT registration.
- * Also detects retake scenarios (student previously attempted but did not pass).
- */
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
   const q = (searchParams.get('q') || '').trim();
   if (!q) return NextResponse.json({ error: 'Query required.' }, { status: 400 });
 
-  // 1. Search by student_unique_id OR card_number
+  // 1. Search student
   const { data: student, error } = await supabaseAdmin
     .from('students')
     .select(`
@@ -27,14 +20,24 @@ export async function GET(request) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   if (!student) return NextResponse.json({ error: 'No student found with that ID or card number.' }, { status: 404 });
 
-  // 2. Check Membership PASSED
-  const { data: grade } = await supabaseAdmin
-    .from('student_grades')
-    .select('status')
+  // 2. Check Membership PASSED via registrations -> membership_grades
+  const { data: memReg } = await supabaseAdmin
+    .from('registrations')
+    .select('id')
     .eq('student_id', student.id)
+    .eq('stage', 'membership')
     .maybeSingle();
 
-  const statusRaw = (grade?.status || '').toString().trim();
+  let statusRaw = '';
+  if (memReg) {
+    const { data: grade } = await supabaseAdmin
+      .from('membership_grades')
+      .select('status')
+      .eq('registration_id', memReg.id)
+      .maybeSingle();
+    statusRaw = (grade?.status || '').toString().trim();
+  }
+
   const hasPassed = statusRaw.toUpperCase() === 'PASSED';
 
   if (!hasPassed) {
@@ -48,17 +51,18 @@ export async function GET(request) {
     }, { status: 403 });
   }
 
-  // 3. Check for prior MIT history (retake detection)
+  // 3. Check prior MIT history
   const { data: priorMit } = await supabaseAdmin
-    .from('mit_registrations')
-    .select('id, batch_id, batches(batch_name), mit_grades(status)')
-    .eq('membership_student_id', student.id);
+    .from('registrations')
+    .select('id, batch_id, batch:batches(batch_name), mit_grades(status)')
+    .eq('student_id', student.id)
+    .eq('stage', 'mit');
 
   const isRetake = priorMit && priorMit.length > 0;
   const priorAttempts = (priorMit || []).map((r) => {
     const g = Array.isArray(r.mit_grades) ? r.mit_grades[0] : r.mit_grades;
     return {
-      batch: r.batches?.batch_name || r.batch_id,
+      batch: r.batch?.batch_name || r.batch_id,
       status: (g?.status || 'NOT GRADED').toUpperCase(),
     };
   });

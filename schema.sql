@@ -128,7 +128,7 @@ create policy "public read student photos" on storage.objects
 -- Run this block separately if the DB already exists.
 -- ============================================================
 
-create table if not exists student_grades (
+create table if not exists membership_grades (
   id              uuid primary key default gen_random_uuid(),
   student_id      uuid not null references students(id) on delete cascade unique,
 
@@ -157,13 +157,13 @@ create table if not exists student_grades (
   updated_at      timestamptz not null default now()
 );
 
-create index if not exists idx_grades_student on student_grades(student_id);
+create index if not exists idx_grades_student on membership_grades(student_id);
 
 -- RLS: only authenticated admins can read/write grades
-alter table student_grades enable row level security;
+alter table membership_grades enable row level security;
 
-drop policy if exists "admins manage grades" on student_grades;
-create policy "admins manage grades" on student_grades
+drop policy if exists "admins manage grades" on membership_grades;
+create policy "admins manage grades" on membership_grades
   for all using (auth.role() = 'authenticated')
   with check (auth.role() = 'authenticated');
 
@@ -311,7 +311,7 @@ alter table students add column if not exists is_first_timer text default 'Yes';
 -- MEMBERSHIP RETAKE:
 --   1. Student searches by existing student_unique_id or card_number.
 --   2. API /api/membership/retake updates students.batch_id to the new batch.
---   3. The student_grades row is RESET (grades cleared) with a comments field
+--   3. The membership_grades row is RESET (grades cleared) with a comments field
 --      starting with "RETAKE —" — this is used for detection in the admin UI.
 --
 -- MIT RETAKE:
@@ -333,7 +333,7 @@ alter table students add column if not exists is_first_timer text default 'Yes';
 -- [NEW] ID CARD COLLECTED DATE MIGRATION
 -- Run this single line if your database already exists:
 -- ============================================================
-alter table student_grades add column if not exists id_card_collected_date date;
+alter table membership_grades add column if not exists id_card_collected_date date;
 
 -- ============================================================
 -- [NEW] LOCAL GOVERNMENT & NEXT OF KIN FIELDS MIGRATION
@@ -363,6 +363,42 @@ alter table proclaimers_grades add column if not exists first_timer_date date;  
 -- Make a user a FULL SUPER ADMIN account:
 -- UPDATE auth.users SET raw_user_meta_data = jsonb_build_object('role', 'admin') WHERE email = 'admin@ats.org';
 
+-- ============================================================
+-- [NEW] EXCEL IMPORT FIX MIGRATION (RUN THIS IN SUPABASE SQL EDITOR)
+-- ============================================================
+
+-- 1. Ensure registration_id and score columns on mit_grades
+ALTER TABLE mit_grades ADD COLUMN IF NOT EXISTS final_exam INT;
+ALTER TABLE mit_grades ADD COLUMN IF NOT EXISTS exam INT;
+ALTER TABLE mit_grades ADD COLUMN IF NOT EXISTS registration_id UUID REFERENCES registrations(id) ON DELETE CASCADE;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_mit_grades_reg_id ON mit_grades(registration_id);
+
+-- 2. Ensure registration_id, score, and influence columns on proclaimers_grades
+ALTER TABLE proclaimers_grades ADD COLUMN IF NOT EXISTS influence TEXT;
+ALTER TABLE proclaimers_grades ADD COLUMN IF NOT EXISTS mountain_of_influence TEXT;
+ALTER TABLE proclaimers_grades ADD COLUMN IF NOT EXISTS cih INT;
+ALTER TABLE proclaimers_grades ADD COLUMN IF NOT EXISTS project INT;
+ALTER TABLE proclaimers_grades ADD COLUMN IF NOT EXISTS seminar_attendance INT;
+ALTER TABLE proclaimers_grades ADD COLUMN IF NOT EXISTS registration_id UUID REFERENCES registrations(id) ON DELETE CASCADE;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_proclaimers_grades_reg_id ON proclaimers_grades(registration_id);
+
+-- 3. Ensure registration_id on membership_grades
+ALTER TABLE membership_grades ADD COLUMN IF NOT EXISTS registration_id UUID REFERENCES registrations(id) ON DELETE CASCADE;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_mem_grades_reg_id ON membership_grades(registration_id);
+
+-- 4. Ensure additional biodata columns on students table
+ALTER TABLE students ADD COLUMN IF NOT EXISTS next_of_kin TEXT;
+ALTER TABLE students ADD COLUMN IF NOT EXISTS next_of_kin_phone TEXT;
+ALTER TABLE students ADD COLUMN IF NOT EXISTS next_of_kin_relationship TEXT;
+ALTER TABLE students ADD COLUMN IF NOT EXISTS local_government TEXT;
+-- 5. Change grade score columns from INT to NUMERIC to support decimal grades (e.g. 34.5)
+ALTER TABLE membership_grades ALTER COLUMN attendance TYPE NUMERIC USING attendance::NUMERIC;
+ALTER TABLE membership_grades ALTER COLUMN test TYPE NUMERIC USING test::NUMERIC;
+ALTER TABLE membership_grades ALTER COLUMN assignment TYPE NUMERIC USING assignment::NUMERIC;
+ALTER TABLE membership_grades ALTER COLUMN assessment TYPE NUMERIC USING assessment::NUMERIC;
+ALTER TABLE membership_grades ALTER COLUMN presentation TYPE NUMERIC USING presentation::NUMERIC;
+ALTER TABLE membership_grades ALTER COLUMN exam TYPE NUMERIC USING exam::NUMERIC;
+ALTER TABLE membership_grades ALTER COLUMN final_grades TYPE NUMERIC USING final_grades::NUMERIC;
 
 
 

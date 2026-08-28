@@ -1,24 +1,52 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../../../lib/supabaseAdmin';
+import { requireAdmin } from '../../../../../lib/requireAdmin';
 
-async function requireAdmin(request) {
-  const authHeader = request.headers.get('authorization') || '';
-  const token = authHeader.replace('Bearer ', '');
-  if (!token) return null;
-  const { data, error } = await supabaseAdmin.auth.getUser(token);
-  if (error || !data.user) return null;
-  return data.user;
+// Helper to get or create membership registration
+async function getOrCreateMembershipReg(studentId) {
+  let { data: reg } = await supabaseAdmin
+    .from('registrations')
+    .select('id')
+    .eq('student_id', studentId)
+    .eq('stage', 'membership')
+    .maybeSingle();
+
+  if (!reg) {
+    const { data: student } = await supabaseAdmin
+      .from('students')
+      .select('batch_id')
+      .eq('id', studentId)
+      .single();
+
+    if (student) {
+      const { data: newReg } = await supabaseAdmin
+        .from('registrations')
+        .insert({
+          student_id: studentId,
+          batch_id: student.batch_id,
+          stage: 'membership',
+        })
+        .select('id')
+        .single();
+      reg = newReg;
+    }
+  }
+
+  return reg;
 }
 
 export async function GET(request, { params }) {
   const user = await requireAdmin(request);
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const { id } = params;
+  const { id } = await params;
+  const reg = await getOrCreateMembershipReg(id);
+  if (!reg) return NextResponse.json({ grades: null });
+
   const { data, error } = await supabaseAdmin
-    .from('student_grades')
+    .from('membership_grades')
     .select('*')
-    .eq('student_id', id)
+    .eq('registration_id', reg.id)
     .maybeSingle();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -29,11 +57,14 @@ export async function PATCH(request, { params }) {
   const user = await requireAdmin(request);
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const { id } = params;
+  const { id } = await params;
   const body = await request.json();
 
+  const reg = await getOrCreateMembershipReg(id);
+  if (!reg) return NextResponse.json({ error: 'Membership registration not found.' }, { status: 404 });
+
   const payload = {
-    student_id:          id,
+    registration_id:     reg.id,
     class:               body.class               || null,
     trainer:             body.trainer             || null,
     attendance:          body.attendance   != null ? Number(body.attendance)   : null,
@@ -54,8 +85,8 @@ export async function PATCH(request, { params }) {
   };
 
   const { data, error } = await supabaseAdmin
-    .from('student_grades')
-    .upsert(payload, { onConflict: 'student_id' })
+    .from('membership_grades')
+    .upsert(payload, { onConflict: 'registration_id' })
     .select()
     .single();
 

@@ -1,41 +1,76 @@
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useEffect, useRef, use } from 'react';
 import Link from 'next/link';
-import { useParams } from 'next/navigation';
-import { useAdminGuard } from '../../../../lib/useAdminGuard';
+import { useRouter } from 'next/navigation';
 import { supabase } from '../../../../lib/supabaseClient';
-import Sidebar from '../../../../components/Sidebar';
 import StudentTable from '../../../../components/StudentTable';
 import MitStudentTable from '../../../../components/MitStudentTable';
+import Sidebar from '../../../../components/Sidebar';
 import PageLoader from '../../../../components/PageLoader';
 import QRCodeModal from '../../../../components/QRCodeModal';
-import { getImageUrl } from '../../../../lib/getImageUrl';
 
-export default function BatchDetail() {
-  const session = useAdminGuard();
-  const { id } = useParams();
+export default function BatchDetail({ params: paramsPromise }) {
+  const params = use(paramsPromise);
+  const id = params.id;
   const router = useRouter();
 
+  const [session, setSession] = useState(undefined);
   const [batch, setBatch] = useState(null);
-  const [students, setStudents] = useState([]);          // Membership students
-  const [mitRegs, setMitRegs] = useState([]);            // MIT registrations
-  const [proclaimersRegs, setProclaimersRegs] = useState([]); // Proclaimers registrations
+  const [students, setStudents] = useState([]);
+  const [mitRegs, setMitRegs] = useState([]);
+  const [proclaimersRegs, setProclaimersRegs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [typeFilter, setTypeFilter] = useState('ALL');   // 'ALL' | 'MEMBERSHIP' | 'MIT' | 'PROCLAIMERS'
-  const [importing, setImporting] = useState(false);
-  const [importResult, setImportResult] = useState(null);
-  const [deleting, setDeleting] = useState(false);
+  const [typeFilter, setTypeFilter] = useState('ALL');
   const [showQrModal, setShowQrModal] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  // Import state
+  const [importing, setImporting] = useState(false);
+  const [importProgress, setImportProgress] = useState({ percent: 0, stage: '', detail: '' });
+  const [importResult, setImportResult] = useState(null);
   const fileInputRef = useRef(null);
 
-  async function loadAll(sessionRef) {
-    const token = sessionRef?.access_token;
-    const res = await fetch(`/api/batches/${id}/students?t=${Date.now()}`, {
-      headers: { Authorization: `Bearer ${token}` },
-      cache: 'no-store',
+  // Navigation guard when upload is in progress
+  useEffect(() => {
+    if (!importing) return;
+    function handleBeforeUnload(e) {
+      e.preventDefault();
+      e.returnValue = '⚠️ Upload in progress! Leaving this page will cancel the ongoing upload.';
+      return e.returnValue;
+    }
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [importing]);
+
+  function handleNavigationGuard(e) {
+    if (importing) {
+      const confirmLeave = window.confirm(
+        '⚠️ Upload in progress! Navigating away will cancel the ongoing file upload.\n\nAre you sure you want to cancel and leave?'
+      );
+      if (!confirmLeave) {
+        if (e) e.preventDefault();
+        return false;
+      }
+    }
+    return true;
+  }
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      if (!data.session) {
+        router.push('/admin/login');
+      } else {
+        const isViewer = data.session.user?.email === 'viewer@ats.com';
+        setSession({ ...data.session, isViewer });
+      }
+    });
+  }, [router]);
+
+  async function loadAll(s) {
+    const res = await fetch(`/api/batches/${id}/students`, {
+      headers: { Authorization: `Bearer ${s.access_token}` },
     });
     if (!res.ok) { setLoading(false); return; }
     const json = await res.json();
@@ -45,7 +80,6 @@ export default function BatchDetail() {
     setProclaimersRegs(json.proclaimersRegs || []);
     setLoading(false);
   }
-
 
   useEffect(() => {
     if (!session) return;
@@ -90,20 +124,107 @@ export default function BatchDetail() {
   async function handleUpload(e) {
     const file = e.target.files?.[0];
     if (!file) return;
+
     setImporting(true);
     setImportResult(null);
-    const fd = new FormData();
-    fd.append('file', file);
-    const res = await fetch(`/api/batches/${id}/import`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${session.access_token}` },
-      body: fd,
+    setImportProgress({
+      percent: 5,
+      stage: 'Step 1/4: Reading Excel migration template file…',
+      detail: `File selected: ${file.name} (${(file.size / 1024).toFixed(1)} KB)`
     });
-    const json = await res.json();
-    setImportResult(json);
-    setImporting(false);
-    await loadAll(session);
-    if (fileInputRef.current) fileInputRef.current.value = '';
+
+    try {
+      // Step 1: Read workbook header structure locally
+      const arrayBuffer = await file.arrayBuffer();
+      let sheetNames = [];
+      try {
+        const ExcelJS = (await import('exceljs')).default;
+        const workbook = new ExcelJS.Workbook();
+        await workbook.xlsx.load(arrayBuffer);
+        sheetNames = workbook.worksheets.map(w => w.name);
+      } catch (err) {
+        sheetNames = ['Worksheet'];
+      }
+
+      setImportProgress({
+        percent: 20,
+        stage: 'Step 2/4: Analyzing worksheets & student biodata…',
+        detail: `Found ${sheetNames.length} sheet(s) [${sheetNames.slice(0, 3).join(', ')}] in ${file.name}`,
+      });
+
+      // Step 2: Live progression stages
+      const interval = setInterval(() => {
+        setImportProgress((prev) => {
+          if (prev.percent >= 90) {
+            clearInterval(interval);
+            return prev;
+          }
+          const nextPercent = prev.percent + Math.floor(Math.random() * 8) + 4;
+          let stageMsg = 'Step 2/4: Processing student biodata & generating ATS Student IDs…';
+          let detailMsg = `Validating student profiles & emails…`;
+
+          if (nextPercent > 45 && nextPercent <= 70) {
+            stageMsg = 'Step 3/4: Saving Membership & MIT grades…';
+            detailMsg = `Updating attendance, test scores, and class records…`;
+          } else if (nextPercent > 70 && nextPercent <= 88) {
+            stageMsg = 'Step 4/4: Saving Proclaimers grades & Mountain of Influence…';
+            detailMsg = `Linking Proclaimers registrations & grade payloads…`;
+          } else if (nextPercent > 88) {
+            stageMsg = 'Step 4/4: Finalizing batch database records & indexes…';
+            detailMsg = `Completing database transactions…`;
+          }
+
+          return {
+            percent: Math.min(nextPercent, 92),
+            stage: stageMsg,
+            detail: detailMsg,
+          };
+        });
+      }, 350);
+
+      const fd = new FormData();
+      fd.append('file', file);
+
+      const res = await fetch(`/api/batches/${id}/import`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${session.access_token}` },
+        body: fd,
+      });
+
+      clearInterval(interval);
+
+      const json = await res.json();
+      if (!res.ok) {
+        setImportProgress({ percent: 100, stage: 'Import Failed ❌', detail: json.error || 'Import failed.' });
+        setImportResult({ error: json.error || 'Import failed.' });
+      } else {
+        const studentCount = json.studentsProcessed || 0;
+        const gradeCount = json.gradesUpdated || 0;
+        const retakeCount = json.retakesProcessed || 0;
+
+        let detailText = `Successfully imported ${studentCount} new student profile(s) and ${gradeCount} grade record(s).`;
+        if (retakeCount > 0) {
+          detailText += ` Re-enrolled ${retakeCount} retake student(s).`;
+        }
+
+        setImportProgress({
+          percent: 100,
+          stage: 'Import Complete! 🎉',
+          detail: detailText,
+        });
+        setImportResult(json);
+      }
+    } catch (err) {
+      setImportProgress({ percent: 100, stage: 'Import Error ❌', detail: err.message });
+      setImportResult({ error: err.message || 'Network error during import.' });
+    }
+
+    // Delay finish by 1000ms so user sees completed 100% bar
+    setTimeout(async () => {
+      setImporting(false);
+      await loadAll(session);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }, 1000);
   }
 
   async function deleteBatch() {
@@ -142,11 +263,11 @@ export default function BatchDetail() {
 
   return (
     <div className="admin-shell">
-      <Sidebar />
+      <Sidebar onNavigate={handleNavigationGuard} />
       <div className="admin-main">
         <div className="admin-topbar">
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <Link href="/admin" className="btn btn-ghost btn-sm" style={{ padding: '6px 10px' }}>
+            <Link href="/admin" className="btn btn-ghost btn-sm" style={{ padding: '6px 10px' }} onClick={handleNavigationGuard}>
               ← Back
             </Link>
             <div>
@@ -251,19 +372,63 @@ export default function BatchDetail() {
             </div>
           </div>
 
-          {/* Uploading / Processing Display */}
+          {/* Uploading / Progressive Progress Bar Display */}
           {importing && (
-            <div className="info-box" style={{
-              display: 'flex', alignItems: 'center', gap: 14, padding: '16px 20px',
-              background: 'rgba(212,175,55,0.08)', border: '1px solid rgba(212,175,55,0.3)',
-              borderRadius: 12, marginBottom: 20,
+            <div style={{
+              background: 'linear-gradient(135deg, rgba(15, 23, 42, 0.96), rgba(30, 41, 59, 0.96))',
+              border: '1px solid rgba(212, 175, 55, 0.45)',
+              borderRadius: 16,
+              padding: '20px 24px',
+              marginBottom: 24,
+              boxShadow: '0 12px 30px -5px rgba(0, 0, 0, 0.25), 0 0 20px rgba(212, 175, 55, 0.15)',
+              color: '#fff',
             }}>
-              <i className="fa-solid fa-spinner fa-spin" style={{ fontSize: '1.5rem', color: 'var(--gold)' }}></i>
-              <div>
-                <strong style={{ color: 'var(--navy)', fontSize: '0.95rem' }}>Uploading Batch Data & Processing Retakes…</strong>
-                <div className="muted text-sm" style={{ marginTop: 2 }}>
-                  Verifying student records, resolving unique IDs, and re-enrolling retaking students from previous batches…
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                  <div style={{
+                    width: 42, height: 42, borderRadius: 12,
+                    background: 'rgba(212,175,55,0.15)', border: '1px solid rgba(212,175,55,0.35)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    color: 'var(--gold, #d4af37)', fontSize: '1.2rem',
+                    boxShadow: '0 0 10px rgba(212, 175, 55, 0.2)',
+                  }}>
+                    {importProgress.percent === 100 ? (
+                      <i className="fa-solid fa-check" style={{ color: '#10b981' }}></i>
+                    ) : (
+                      <i className="fa-solid fa-spinner fa-spin"></i>
+                    )}
+                  </div>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: '1rem', color: '#f8fafc', letterSpacing: '-0.01em' }}>
+                      {importProgress.stage || 'Uploading Batch Data…'}
+                    </div>
+                    <div style={{ fontSize: '0.82rem', color: '#94a3b8', marginTop: 2 }}>
+                      {importProgress.detail}
+                    </div>
+                  </div>
                 </div>
+                <div style={{
+                  fontSize: '1.35rem', fontWeight: 800, color: 'var(--gold, #d4af37)',
+                  fontFamily: 'monospace', background: 'rgba(212,175,55,0.12)',
+                  padding: '4px 14px', borderRadius: 8, border: '1px solid rgba(212,175,55,0.3)'
+                }}>
+                  {importProgress.percent}%
+                </div>
+              </div>
+
+              {/* Glowing Progress Track */}
+              <div style={{
+                width: '100%', height: 10, background: 'rgba(255, 255, 255, 0.1)',
+                borderRadius: 999, overflow: 'hidden', position: 'relative'
+              }}>
+                <div style={{
+                  width: `${importProgress.percent}%`,
+                  height: '100%',
+                  background: 'linear-gradient(90deg, #d4af37 0%, #f59e0b 50%, #eab308 100%)',
+                  borderRadius: 999,
+                  transition: 'width 0.35s ease-in-out',
+                  boxShadow: '0 0 14px rgba(212, 175, 55, 0.7)',
+                }} />
               </div>
             </div>
           )}
@@ -271,8 +436,18 @@ export default function BatchDetail() {
           {/* Import result & retake feedback */}
           {importResult && !importing && (
             <div style={{ marginBottom: 20 }}>
-              <div className={(importResult.studentsProcessed > 0 || importResult.gradesUpdated > 0 || importResult.retakesProcessed > 0) ? 'success-box' : 'info-box'} style={{ marginBottom: importResult.retakesProcessed > 0 ? 10 : 0 }}>
-                <strong>{importResult.message || `Processed record(s).`}</strong>
+              <div
+                className={importResult.error ? 'info-box' : (importResult.studentsProcessed > 0 || importResult.gradesUpdated > 0 || importResult.retakesProcessed > 0) ? 'success-box' : 'info-box'}
+                style={{
+                  marginBottom: importResult.retakesProcessed > 0 ? 10 : 0,
+                  ...(importResult.error ? { background: '#fee2e2', border: '1px solid #fca5a5', color: '#991b1b' } : {}),
+                }}
+              >
+                <strong>
+                  {importResult.error
+                    ? `Import Failed: ${importResult.error}`
+                    : (importResult.message || `Successfully imported ${importResult.studentsProcessed || 0} student profile(s) and ${importResult.gradesUpdated || 0} grade record(s).`)}
+                </strong>
                 {importResult.errors?.length > 0 && (
                   <ul style={{ margin: '8px 0 0', paddingLeft: 18, fontSize: '0.82rem' }}>
                     {importResult.errors.map((e, i) => <li key={i}>{e}</li>)}
@@ -295,7 +470,7 @@ export default function BatchDetail() {
                   {importResult.retakingStudents?.length > 0 && (
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                       {importResult.retakingStudents.map((rs, idx) => (
-                        <Link key={idx} href={`/admin/students/${rs.id}`} style={{
+                        <Link key={idx} href={`/admin/students/${rs.id}`} onClick={handleNavigationGuard} style={{
                           background: '#fff', border: '1px solid var(--border)', borderRadius: 6,
                           padding: '5px 12px', fontSize: '0.82rem', textDecoration: 'none', color: 'var(--navy)',
                           display: 'inline-flex', alignItems: 'center', gap: 8, fontWeight: 600,
@@ -374,7 +549,7 @@ export default function BatchDetail() {
                     </div>
                   )}
                   <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-                    <StudentTable students={students} searchQuery={search} />
+                    <StudentTable students={students} searchQuery={search} onNavigate={handleNavigationGuard} />
                   </div>
                 </div>
               )}
@@ -396,7 +571,7 @@ export default function BatchDetail() {
                     </div>
                   )}
                   <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-                    <MitStudentTable registrations={mitRegs} searchQuery={search} />
+                    <MitStudentTable registrations={mitRegs} searchQuery={search} onNavigate={handleNavigationGuard} />
                   </div>
                 </div>
               )}
@@ -418,7 +593,7 @@ export default function BatchDetail() {
                     </div>
                   )}
                   <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-                    <ProclaimersTable registrations={proclaimersRegs} searchQuery={search} />
+                    <ProclaimersTable registrations={proclaimersRegs} searchQuery={search} onNavigate={handleNavigationGuard} />
                   </div>
                 </div>
               )}
@@ -439,7 +614,7 @@ export default function BatchDetail() {
 }
 
 // Inline Proclaimers table matching StudentTable & MitStudentTable design
-function ProclaimersTable({ registrations = [], searchQuery = '' }) {
+function ProclaimersTable({ registrations = [], searchQuery = '', onNavigate }) {
   const q = searchQuery.toLowerCase().trim();
   const filtered = q
     ? registrations.filter((r) => {
@@ -474,67 +649,53 @@ function ProclaimersTable({ registrations = [], searchQuery = '' }) {
     <table>
       <thead>
         <tr>
-          <th>Photo</th>
           <th>Student ID</th>
-          <th>Name</th>
-          <th>Email</th>
+          <th>Full Name</th>
           <th>Department</th>
+          <th>CIH Score</th>
+          <th>Attendance</th>
+          <th>Project</th>
+          <th>Seminar</th>
+          <th>Mountain</th>
+          <th>Final Grade</th>
           <th>Status</th>
-          <th>Registered</th>
           <th>Actions</th>
         </tr>
       </thead>
       <tbody>
-        {filtered.map((reg) => {
-          const s = reg.membership_student || {};
-          const g = reg.proclaimers_grades?.[0] || {};
-          const status = (g.status || '').toString().trim().toUpperCase();
+        {filtered.map((r) => {
+          const s = r.membership_student || {};
+          const grade = r.proclaimers_grades?.[0] || {};
+          const fullName = [s.surname, s.first_name, s.middle_name].filter(Boolean).join(' ');
 
           return (
-            <tr key={reg.id}>
+            <tr key={r.id}>
               <td>
-                {s.photo_url ? (
-                  <img src={getImageUrl(s.photo_url)} alt="" style={{ width: 36, height: 36, borderRadius: '50%', objectFit: 'cover' }} />
-                ) : (
-                  <div style={{
-                    width: 36, height: 36, borderRadius: '50%',
-                    background: 'linear-gradient(135deg,#8b5cf6,#6d28d9)',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    color: '#fff', fontWeight: 700, fontSize: '0.75rem',
-                  }}>
-                    {s.first_name?.[0]}{s.surname?.[0]}
-                  </div>
-                )}
+                <span className="badge badge-gold">{s.student_unique_id || '—'}</span>
               </td>
-              <td><span className="badge badge-gold">{s.student_unique_id}</span></td>
               <td>
-                <Link href={`/admin/students/${s.id}`} style={{ fontWeight: 600, color: 'var(--navy)' }}>
-                  {s.surname} {s.first_name}
+                <Link href={`/admin/students/${s.id}`} onClick={onNavigate} style={{ fontWeight: 600, color: 'var(--navy)', textDecoration: 'none' }}>
+                  {fullName || 'Unnamed Student'}
                 </Link>
               </td>
-              <td className="muted text-sm">{s.email || '—'}</td>
-              <td className="muted text-sm">{g.department || reg.department || <span style={{ opacity: 0.4 }}>—</span>}</td>
+              <td>{r.department || '—'}</td>
+              <td>{grade.cih ?? '—'}</td>
+              <td>{grade.attendance ?? '—'}</td>
+              <td>{grade.project ?? '—'}</td>
+              <td>{grade.seminar_attendance ?? '—'}</td>
+              <td>{grade.mountain_of_influence || '—'}</td>
               <td>
-                {status === 'PASSED' ? (
-                  <span className="grade-pill passed">PASSED</span>
-                ) : status === 'FAILED' || status === 'DROP' ? (
-                  <span className="grade-pill failed">DROP</span>
-                ) : status === 'IN_PROGRESS' ? (
-                  <span className="grade-pill in-progress">IN PROGRESS</span>
-                ) : (
-                  <span className="grade-pill pending">Pending</span>
-                )}
+                <strong>{grade.final_grades ?? '—'}</strong>
               </td>
-              <td className="muted text-sm">{new Date(reg.created_at).toLocaleDateString()}</td>
               <td>
-                <div style={{ display: 'flex', gap: 6 }}>
-                  <Link href={`/admin/students/${s.id}?tab=PROCLAIMERS`} className="btn btn-primary btn-sm">
-                    Edit Grades
-                  </Link>
-                  <Link href={`/admin/students/${s.id}`} className="btn btn-outline btn-sm">
-                    Profile
-                  </Link>
-                </div>
+                <span className={`badge ${grade.status?.toLowerCase() === 'released' ? 'badge-green' : 'badge-amber'}`}>
+                  {grade.status || 'Registered'}
+                </span>
+              </td>
+              <td>
+                <Link href={`/admin/students/${s.id}`} onClick={onNavigate} className="btn btn-ghost btn-sm" style={{ padding: '4px 8px' }}>
+                  View Profile
+                </Link>
               </td>
             </tr>
           );

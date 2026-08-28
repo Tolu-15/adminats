@@ -1,53 +1,83 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../../lib/supabaseAdmin';
-
-async function requireAdmin(request, allowViewer = false) {
-  const authHeader = request.headers.get('authorization') || '';
-  const token = authHeader.replace('Bearer ', '');
-  if (!token) return null;
-  const { data, error } = await supabaseAdmin.auth.getUser(token);
-  if (error || !data.user) return null;
-
-  const role = data.user.user_metadata?.role || 'admin';
-  if (!allowViewer && role === 'viewer') return null;
-  return data.user;
-}
-
+import { requireAdmin } from '../../../../lib/requireAdmin';
 
 export async function GET(request, { params }) {
+  const { id } = await params;
 
-
-  const { id } = params;
-
-
-  const { data: student, error: sErr } = await supabaseAdmin
+  // 1. Fetch core student record + batch info
+  const { data: rawStudent, error: sErr } = await supabaseAdmin
     .from('students')
     .select('*, batch:batches(*)')
     .eq('id', id)
     .single();
 
-  if (sErr || !student) return NextResponse.json({ error: 'Student not found.' }, { status: 404 });
+  if (sErr || !rawStudent) return NextResponse.json({ error: 'Student not found.' }, { status: 404 });
 
+  // 2. Fetch Next of Kin & Spiritual Profile extension tables
+  const [nokRes, spiritualRes, regsRes] = await Promise.all([
+    supabaseAdmin.from('student_next_of_kin').select('*').eq('student_id', id).maybeSingle(),
+    supabaseAdmin.from('student_spiritual_profile').select('*').eq('student_id', id).maybeSingle(),
+    supabaseAdmin.from('registrations').select('*, batch:batches(*)').eq('student_id', id),
+  ]);
 
-  const { data: membershipGrades } = await supabaseAdmin
-    .from('student_grades')
-    .select('*')
-    .eq('student_id', id)
-    .maybeSingle();
+  const nok = nokRes.data;
+  const spiritual = spiritualRes.data;
+  const registrations = regsRes.data || [];
 
+  // Flatten biodata onto student object for seamless UI component compatibility
+  const student = {
+    ...rawStudent,
+    next_of_kin: nok?.name || null,
+    next_of_kin_relationship: nok?.relationship || null,
+    next_of_kin_phone: nok?.phone || null,
+    next_of_kin_address: nok?.address || null,
+    born_again: spiritual?.born_again ? 'Yes' : (spiritual?.born_again === false ? 'No' : null),
+    born_again_details: spiritual?.born_again_details || null,
+    baptized_water: spiritual?.baptized_water,
+    baptized_water_details: spiritual?.baptized_water_details || null,
+    baptized_holy_spirit: spiritual?.baptized_holy_spirit,
+    baptized_holy_spirit_details: spiritual?.baptized_holy_spirit_details || null,
+    is_first_timer: spiritual?.is_first_timer ? 'Yes' : 'No',
+  };
 
-  const { data: mitReg } = await supabaseAdmin
-    .from('mit_registrations')
-    .select('*, batch:batches(*)')
-    .eq('membership_student_id', id)
-    .maybeSingle();
+  // 3. Extract membership registration & grades
+  const memReg = registrations.find((r) => r.stage === 'membership');
+  let membershipGrades = null;
+  if (memReg) {
+    const { data: mg } = await supabaseAdmin
+      .from('membership_grades')
+      .select('*')
+      .eq('registration_id', memReg.id)
+      .maybeSingle();
+    membershipGrades = mg;
+  }
 
+  if (!membershipGrades) {
+    const { data: mg } = await supabaseAdmin
+      .from('membership_grades')
+      .select('*')
+      .eq('student_id', id)
+      .maybeSingle();
+    membershipGrades = mg;
+  }
+
+  // 4. Extract MIT registration & grades
+  const mitReg = registrations.find((r) => r.stage === 'mit');
   let mitGradesData = null;
   if (mitReg) {
     const { data: mg } = await supabaseAdmin
       .from('mit_grades')
       .select('*')
-      .eq('mit_registration_id', mitReg.id)
+      .eq('registration_id', mitReg.id)
+      .maybeSingle();
+    mitGradesData = mg;
+  }
+  if (!mitGradesData) {
+    const { data: mg } = await supabaseAdmin
+      .from('mit_grades')
+      .select('*')
+      .eq('student_id', id)
       .maybeSingle();
     mitGradesData = mg;
   }
@@ -56,19 +86,22 @@ export async function GET(request, { params }) {
     ? { ...mitReg, mit_grades: mitGradesData ? [mitGradesData] : [] }
     : null;
 
-  // 4. Fetch Proclaimers registration + Proclaimers batch info
-  const { data: procReg } = await supabaseAdmin
-    .from('proclaimers_registrations')
-    .select('*, batch:batches(*)')
-    .eq('membership_student_id', id)
-    .maybeSingle();
-
+  // 5. Extract Proclaimers registration & grades
+  const procReg = registrations.find((r) => r.stage === 'proclaimers');
   let procGradesData = null;
   if (procReg) {
     const { data: pg } = await supabaseAdmin
       .from('proclaimers_grades')
       .select('*')
-      .eq('proclaimers_registration_id', procReg.id)
+      .eq('registration_id', procReg.id)
+      .maybeSingle();
+    procGradesData = pg;
+  }
+  if (!procGradesData) {
+    const { data: pg } = await supabaseAdmin
+      .from('proclaimers_grades')
+      .select('*')
+      .eq('student_id', id)
       .maybeSingle();
     procGradesData = pg;
   }
@@ -87,80 +120,82 @@ export async function GET(request, { params }) {
 
 /**
  * PATCH /api/students/[id]
- * Updates student biodata — all fields including photo, spiritual, kin, etc.
+ * Updates student biodata — updates students, student_next_of_kin, and student_spiritual_profile tables.
  */
 export async function PATCH(request, { params }) {
   const user = await requireAdmin(request);
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const { id } = params;
+  const { id } = await params;
   const body = await request.json();
 
-  const allowed = [
-    // Identity
+  // 1. Core student fields
+  const studentFields = [
     'card_number', 'surname', 'first_name', 'middle_name', 'gender', 'date_of_birth',
-    // Contact & Origin
-    'email', 'phone', 'home_address', 'state_of_origin', 'local_government', 'nationality', 'country_of_residence',
-    // Education & other
-    'education', 'challenges', 'church_join_date',
-    // Next of kin
-    'next_of_kin', 'next_of_kin_relationship', 'next_of_kin_phone', 'next_of_kin_address',
-    // Spiritual
-    'born_again', 'born_again_details',
-    'baptized_water', 'baptized_water_details',
-    'baptized_holy_spirit', 'baptized_holy_spirit_details',
-    'is_first_timer',
-    // Photo
-    'photo_url',
+    'email', 'phone', 'home_address', 'state_of_origin', 'local_government', 'nationality',
+    'education', 'challenges', 'church_join_date', 'photo_url',
   ];
 
-  const payload = {};
-  for (const field of allowed) {
-    if (field in body) {
-      payload[field] = body[field] === '' ? null : body[field];
-    }
+  const studentPayload = {};
+  for (const field of studentFields) {
+    if (field in body) studentPayload[field] = body[field] === '' ? null : body[field];
   }
 
-  // Automatically format names to BLOCK LETTERS (UPPERCASE)
-  if (payload.surname) payload.surname = payload.surname.toUpperCase().trim();
-  if (payload.first_name) payload.first_name = payload.first_name.toUpperCase().trim();
-  if (payload.middle_name) payload.middle_name = payload.middle_name.toUpperCase().trim();
+  if (studentPayload.surname) studentPayload.surname = studentPayload.surname.toUpperCase().trim();
+  if (studentPayload.first_name) studentPayload.first_name = studentPayload.first_name.toUpperCase().trim();
+  if (studentPayload.middle_name) studentPayload.middle_name = studentPayload.middle_name.toUpperCase().trim();
 
-  // Coerce boolean fields
-  if ('baptized_water' in payload) {
-    payload.baptized_water = payload.baptized_water === 'Yes' || payload.baptized_water === true;
-  }
-  if ('baptized_holy_spirit' in payload) {
-    payload.baptized_holy_spirit = payload.baptized_holy_spirit === 'Yes' || payload.baptized_holy_spirit === true;
+  if (Object.keys(studentPayload).length > 0) {
+    const { error: sErr } = await supabaseAdmin
+      .from('students')
+      .update(studentPayload)
+      .eq('id', id);
+
+    if (sErr) return NextResponse.json({ error: sErr.message }, { status: 500 });
   }
 
-  let { data, error } = await supabaseAdmin
+  // 2. Next of Kin fields
+  const nokFields = ['next_of_kin', 'next_of_kin_relationship', 'next_of_kin_phone', 'next_of_kin_address'];
+  const hasNok = nokFields.some((f) => f in body);
+
+  if (hasNok) {
+    const nokPayload = {
+      student_id: id,
+      name: body.next_of_kin || null,
+      relationship: body.next_of_kin_relationship || null,
+      phone: body.next_of_kin_phone || null,
+      address: body.next_of_kin_address || null,
+    };
+    await supabaseAdmin.from('student_next_of_kin').upsert(nokPayload);
+  }
+
+  // 3. Spiritual profile fields
+  const spiritualFields = [
+    'born_again', 'born_again_details', 'baptized_water', 'baptized_water_details',
+    'baptized_holy_spirit', 'baptized_holy_spirit_details', 'is_first_timer',
+  ];
+  const hasSpiritual = spiritualFields.some((f) => f in body);
+
+  if (hasSpiritual) {
+    const spiritualPayload = {
+      student_id: id,
+      born_again: body.born_again === 'Yes' || body.born_again === true,
+      born_again_details: body.born_again_details || null,
+      baptized_water: body.baptized_water === 'Yes' || body.baptized_water === true,
+      baptized_water_details: body.baptized_water_details || null,
+      baptized_holy_spirit: body.baptized_holy_spirit === 'Yes' || body.baptized_holy_spirit === true,
+      baptized_holy_spirit_details: body.baptized_holy_spirit_details || null,
+      is_first_timer: body.is_first_timer === 'Yes' || body.is_first_timer === true,
+    };
+    await supabaseAdmin.from('student_spiritual_profile').upsert(spiritualPayload);
+  }
+
+  // Re-fetch updated full student record
+  const { data: updatedStudent } = await supabaseAdmin
     .from('students')
-    .update(payload)
-    .eq('id', id)
     .select('*, batch:batches(*)')
+    .eq('id', id)
     .single();
 
-  if (error && (error.message?.includes('column') || error.code === 'PGRST204' || error.message?.includes('schema'))) {
-    console.warn('Supabase DB missing new columns on update, retrying with fallback:', error.message);
-    const fallbackPayload = { ...payload };
-    delete fallbackPayload.local_government;
-    delete fallbackPayload.next_of_kin_relationship;
-    delete fallbackPayload.next_of_kin_phone;
-
-    const res2 = await supabaseAdmin
-      .from('students')
-      .update(fallbackPayload)
-      .eq('id', id)
-      .select('*, batch:batches(*)')
-      .single();
-
-    if (res2.error) return NextResponse.json({ error: res2.error.message }, { status: 500 });
-    data = res2.data;
-  } else if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
-  }
-
-  return NextResponse.json({ student: data });
+  return NextResponse.json({ student: updatedStudent });
 }
-

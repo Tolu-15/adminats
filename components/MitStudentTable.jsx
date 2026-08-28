@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { getImageUrl } from '../lib/getImageUrl';
 
-export default function MitStudentTable({ registrations = [], searchQuery = '' }) {
+export default function MitStudentTable({ registrations = [], searchQuery = '', onNavigate }) {
   const q = searchQuery.toLowerCase().trim();
 
   const filtered = q
@@ -39,12 +39,15 @@ export default function MitStudentTable({ registrations = [], searchQuery = '' }
         <tr>
           <th>Photo</th>
           <th>Student ID</th>
-          <th>CHARTER MEMBERSHIP ID CARD No:</th>
+          <th>Card No</th>
           <th>Name</th>
-          <th>Email</th>
           <th>Department</th>
+          <th>Midterm</th>
+          <th>Attendance</th>
+          <th>CITH</th>
+          <th>Final Exam</th>
+          <th>Final Grade</th>
           <th>Status</th>
-          <th>Registered</th>
           <th>Actions</th>
         </tr>
       </thead>
@@ -53,6 +56,7 @@ export default function MitStudentTable({ registrations = [], searchQuery = '' }
           const s = reg.membership_student || {};
           const g = reg.mit_grades?.[0] || {};
           const status = (g.status || '').toString().trim().toUpperCase();
+          const fullName = [s.surname, s.first_name, s.middle_name].filter(Boolean).join(' ');
 
           return (
             <tr key={reg.id}>
@@ -79,14 +83,18 @@ export default function MitStudentTable({ registrations = [], searchQuery = '' }
                 )}
               </td>
               <td>
-                <Link href={`/admin/students/${s.id}`} style={{ fontWeight: 600, color: 'var(--navy)' }}>
-                  {s.surname} {s.first_name}
+                <Link href={`/admin/students/${s.id}`} onClick={onNavigate} style={{ fontWeight: 600, color: 'var(--navy)' }}>
+                  {fullName}
                 </Link>
               </td>
-              <td className="muted text-sm">{s.email || '—'}</td>
               <td className="muted text-sm">
                 {g.department || reg.department || <span style={{ opacity: 0.4 }}>—</span>}
               </td>
+              <td>{g.midterm_test ?? '—'}</td>
+              <td>{g.attendance ?? '—'}</td>
+              <td>{g.cth ?? '—'}</td>
+              <td>{g.final_exam ?? g.exam ?? '—'}</td>
+              <td><strong>{g.final_grades ?? '—'}</strong></td>
               <td>
                 {status === 'PASSED' ? (
                   <span className="grade-pill passed">PASSED</span>
@@ -98,14 +106,10 @@ export default function MitStudentTable({ registrations = [], searchQuery = '' }
                   <span className="grade-pill pending">Pending</span>
                 )}
               </td>
-              <td className="muted text-sm">{new Date(reg.created_at).toLocaleDateString()}</td>
               <td>
                 <div style={{ display: 'flex', gap: 6 }}>
-                  <Link href={`/admin/mit-student/${reg.id}`} className="btn btn-primary btn-sm">
-                    Edit Grades
-                  </Link>
-                  <Link href={`/admin/students/${s.id}`} className="btn btn-outline btn-sm">
-                    Profile
+                  <Link href={`/admin/mit-student/${reg.id}`} onClick={onNavigate} className="btn btn-primary btn-sm">
+                    View &amp; Edit Grades
                   </Link>
                 </div>
               </td>

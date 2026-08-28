@@ -1,20 +1,12 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../../lib/supabaseAdmin';
-
-async function requireAdmin(request) {
-  const authHeader = request.headers.get('authorization') || '';
-  const token = authHeader.replace('Bearer ', '');
-  if (!token) return null;
-  const { data, error } = await supabaseAdmin.auth.getUser(token);
-  if (error || !data.user) return null;
-  return data.user;
-}
+import { requireAdmin } from '../../../../lib/requireAdmin';
 
 export async function DELETE(request, { params }) {
   const user = await requireAdmin(request);
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const { id } = params;
+  const { id } = await params;
 
   // ── 1. Get student IDs that BELONG to this batch (via students.batch_id) ──
   const { data: studentRows } = await supabaseAdmin
@@ -49,7 +41,7 @@ export async function DELETE(request, { params }) {
     }
 
     // ── 4. Delete student grades ───────────────────────────────────────────────
-    await supabaseAdmin.from('student_grades').delete().in('student_id', studentIds);
+    await supabaseAdmin.from('membership_grades').delete().in('student_id', studentIds);
 
     // ── 5. Delete the membership students ─────────────────────────────────────
     await supabaseAdmin.from('students').delete().in('id', studentIds);

@@ -3,7 +3,7 @@ import { r2, R2_BUCKET } from '../../../../lib/r2Client';
 
 export async function GET(request, { params }) {
   try {
-    const keyArray = params.key;
+    const { key: keyArray } = await params;
     if (!keyArray || keyArray.length === 0) {
       return new Response('Not found', { status: 404 });
     }

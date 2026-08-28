@@ -5,13 +5,15 @@ node_modules/
 .next/
 out/
 
-# Environment variables
+# Environment & Schema files
 .env
 .env.local
 .env.*.local
 .env.development.local
 .env.test.local
 .env.production.local
+schema.sql
+
 
 # Debug logs
 npm-debug.log*

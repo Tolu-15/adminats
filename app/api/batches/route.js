@@ -7,6 +7,8 @@ import {
   isActiveRegistration,
 } from '../../../lib/activeAnalytics';
 
+import { fetchAllPaginated } from '../../../lib/supabasePagination';
+
 export async function GET(request) {
   const user = await requireAdmin(request);
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -43,24 +45,28 @@ export async function GET(request) {
   const batchIds = activeBatches.map((batch) => batch.id).filter(Boolean);
 
   if (batchIds.length > 0) {
-    const [regsRes, directStudentsRes] = await Promise.all([
-      supabaseAdmin
-        .from('registrations')
-        .select('batch_id, stage, student_id, student:students(id, batch_id, deleted_at)')
-        .in('batch_id', batchIds),
-      supabaseAdmin
-        .from('students')
-        .select('id, batch_id, deleted_at')
-        .in('batch_id', batchIds)
-        .is('deleted_at', null),
+    const [rawRegs, rawDirectStudents] = await Promise.all([
+      fetchAllPaginated(() =>
+        supabaseAdmin
+          .from('registrations')
+          .select('batch_id, stage, student_id, student:students(id, batch_id, deleted_at)')
+          .in('batch_id', batchIds)
+      ),
+      fetchAllPaginated(() =>
+        supabaseAdmin
+          .from('students')
+          .select('id, batch_id, deleted_at')
+          .in('batch_id', batchIds)
+          .is('deleted_at', null)
+      ),
     ]);
 
     const activeBatchIdSet = new Set(batchIds);
 
     // STRICT: Only count registrations where the student is NOT soft-deleted
     // and neither registration batch nor student's home batch is in trash
-    const validRegs = (regsRes.data || []).filter((reg) => isActiveRegistration(reg, activeBatchIdSet));
-    const directStudents = (directStudentsRes.data || []).filter((s) => isActiveBatchStudent(s, activeBatchIdSet));
+    const validRegs = (rawRegs || []).filter((reg) => isActiveRegistration(reg, activeBatchIdSet));
+    const directStudents = (rawDirectStudents || []).filter((s) => isActiveBatchStudent(s, activeBatchIdSet));
 
     const countsByBatch = new Map();
     const registeredStudentSetByBatch = new Map();
@@ -71,33 +77,36 @@ export async function GET(request) {
       if (reg.stage === 'membership') current.membership += 1;
       if (reg.stage === 'mit') current.mit += 1;
       if (reg.stage === 'proclaimers') current.proclaimers += 1;
-      current.total += 1;
       countsByBatch.set(bId, current);
 
       if (!registeredStudentSetByBatch.has(bId)) {
         registeredStudentSetByBatch.set(bId, new Set());
       }
-      if (reg.student_id) {
-        registeredStudentSetByBatch.get(bId).add(reg.student_id);
+      const sId = reg.student_id || reg.student?.id;
+      if (sId) {
+        registeredStudentSetByBatch.get(bId).add(sId);
       }
     });
 
     // Add direct students who are not in trash and not already in registrations
     directStudents.forEach((s) => {
       const bId = s.batch_id;
-      const regSet = registeredStudentSetByBatch.get(bId);
-      if (!regSet || !regSet.has(s.id)) {
+      const regSet = registeredStudentSetByBatch.get(bId) || new Set();
+      if (!regSet.has(s.id)) {
         const current = countsByBatch.get(bId) || { membership: 0, mit: 0, proclaimers: 0, total: 0 };
         current.membership += 1;
-        current.total += 1;
         countsByBatch.set(bId, current);
+        regSet.add(s.id);
+        registeredStudentSetByBatch.set(bId, regSet);
       }
     });
 
     activeBatches.forEach((batch) => {
       const counts = countsByBatch.get(batch.id) || { membership: 0, mit: 0, proclaimers: 0, total: 0 };
+      const uniqueCount = (registeredStudentSetByBatch.get(batch.id) || new Set()).size;
+      counts.total = uniqueCount;
       batch.registration_counts = counts;
-      batch.active_student_count = counts.total;
+      batch.active_student_count = uniqueCount;
     });
   }
 

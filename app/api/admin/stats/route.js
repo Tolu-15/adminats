@@ -7,6 +7,8 @@ import {
   registrationStudentKey,
 } from '../../../../lib/activeAnalytics';
 
+import { fetchAllPaginated } from '../../../../lib/supabasePagination';
+
 export async function GET(request) {
   const user = await requireAdmin(request);
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -113,32 +115,41 @@ export async function GET(request) {
     }
 
     // 2. Fetch parallel counts & records scoped ONLY to non-trashed batches & non-trashed students
-    const [stuRes, regsRes, spiritualRes] = await Promise.all([
-      supabaseAdmin
-        .from('students')
-        .select('id, batch_id, gender, is_first_timer, created_at, deleted_at')
-        .in('batch_id', targetBatchIds)
-        .is('deleted_at', null),
-      supabaseAdmin
-        .from('registrations')
-        .select(`
-          id, batch_id, student_id, stage, department, created_at,
-          student:students (
-            id, batch_id, gender, is_first_timer, created_at, deleted_at
-          )
-        `)
-        .in('batch_id', targetBatchIds),
+    // Paged in chunks of 1000 to avoid PostgREST max-rows truncation
+    const [rawStudents, rawRegs, spiritualRes] = await Promise.all([
+      fetchAllPaginated(() =>
+        supabaseAdmin
+          .from('students')
+          .select('id, batch_id, gender, created_at, deleted_at')
+          .in('batch_id', targetBatchIds)
+          .is('deleted_at', null)
+      ),
+      fetchAllPaginated(() =>
+        supabaseAdmin
+          .from('registrations')
+          .select(`
+            id, batch_id, student_id, stage, department, created_at,
+            student:students (
+              id, batch_id, gender, created_at, deleted_at
+            )
+          `)
+          .in('batch_id', targetBatchIds)
+      ),
       supabaseAdmin
         .from('student_spiritual_profile')
         .select('student_id, is_first_timer'),
     ]);
 
+    if (spiritualRes.error) {
+      console.error('Error fetching spiritual profile for stats:', spiritualRes.error);
+    }
+
     // STRICT FILTER: Exclude any registration where the student is in trash,
     // where the registration's batch is in trash, or where the student's home batch is in trash
-    const validRegs = (regsRes.data || []).filter((r) => isActiveRegistration(r, activeBatchMap));
+    const validRegs = (rawRegs || []).filter((r) => isActiveRegistration(r, activeBatchMap));
 
     // Valid direct students (not in trash and belonging to non-trashed batches)
-    const validDirectStudents = (stuRes.data || []).filter((s) => isActiveBatchStudent(s, activeBatchMap));
+    const validDirectStudents = (rawStudents || []).filter((s) => isActiveBatchStudent(s, activeBatchMap));
 
     // Direct students not already captured via registrations in their batch
     const registeredBatchStudentKeys = new Set(
@@ -151,8 +162,9 @@ export async function GET(request) {
     // Unique active students for accurate demographics (gender, first-timers)
     const activeStudentMap = new Map();
     validRegs.forEach((r) => {
-      if (r.student && !activeStudentMap.has(r.student.id)) {
-        activeStudentMap.set(r.student.id, r.student);
+      const s = r.student;
+      if (s && !activeStudentMap.has(s.id)) {
+        activeStudentMap.set(s.id, s);
       }
     });
     missingDirectStudents.forEach((s) => {
@@ -173,7 +185,8 @@ export async function GET(request) {
     const membershipTotal = membershipRegsCount + missingDirectStudents.length;
     const mitTotal = validRegs.filter((r) => r.stage === 'mit').length;
     const proclaimersTotal = validRegs.filter((r) => r.stage === 'proclaimers').length;
-    const totalStudents = membershipTotal + mitTotal + proclaimersTotal;
+    // Total distinct active students enrolled
+    const totalStudents = activeStudentMap.size;
 
     const totalBatches = dashboardBatches.length;
     const activeBatchesCount = dashboardBatches.filter((b) => b.is_active !== false).length;

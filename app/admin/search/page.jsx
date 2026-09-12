@@ -27,6 +27,7 @@ export default function SearchStudents() {
       const { data } = await supabase
         .from('students')
         .select('id, student_unique_id, surname, first_name, middle_name, photo_url, created_at, batches(batch_name, batch_code)')
+        .is('deleted_at', null)
         .or(`surname.ilike.%${q}%,first_name.ilike.%${q}%,student_unique_id.ilike.%${q}%,email.ilike.%${q}%`)
         .order('created_at', { ascending: false })
         .limit(40);

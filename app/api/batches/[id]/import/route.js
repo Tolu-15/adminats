@@ -2,6 +2,26 @@ import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../../../lib/supabaseAdmin';
 import ExcelJS from 'exceljs';
 import { requireAdmin } from '../../../../../lib/requireAdmin';
+import { logAdminAction } from '../../../../../lib/auditLog';
+
+export const runtime = 'nodejs';
+
+const WRITE_CONCURRENCY = 10;
+
+async function mapWithConcurrency(items, mapper, limit = WRITE_CONCURRENCY) {
+  const results = new Array(items.length);
+  let nextIndex = 0;
+
+  async function worker() {
+    while (nextIndex < items.length) {
+      const index = nextIndex++;
+      results[index] = await mapper(items[index], index);
+    }
+  }
+
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
+}
 
 // ── 1. String Normalization & Similarity ─────────────────────────────────────
 
@@ -254,6 +274,8 @@ export async function POST(request, { params }) {
   const user = await requireAdmin(request);
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
+  try {
+
   const resolvedParams = await params;
   const { id: batchId } = resolvedParams;
 
@@ -269,7 +291,36 @@ export async function POST(request, { params }) {
 
   const formData = await request.formData();
   const file = formData.get('file');
-  if (!file) return NextResponse.json({ error: 'No file uploaded.' }, { status: 400 });
+  if (!file || typeof file === 'string') return NextResponse.json({ error: 'No file uploaded.' }, { status: 400 });
+
+  // 1. File size validation (max 10 MB)
+  const MAX_FILE_SIZE = 10 * 1024 * 1024;
+  if (file.size > MAX_FILE_SIZE) {
+    return NextResponse.json({ error: 'File exceeds maximum allowed size of 10 MB.' }, { status: 400 });
+  }
+
+  if (file.size === 0) {
+    return NextResponse.json({ error: 'Uploaded file is empty.' }, { status: 400 });
+  }
+
+  // 2. MIME type & extension validation
+  const fileName = (file.name || '').toLowerCase();
+  // ExcelJS only reads Office Open XML workbooks. Rejecting legacy .xls here
+  // prevents parser failures from turning into an empty server response.
+  const isExcelExt = fileName.endsWith('.xlsx');
+  if (!isExcelExt) {
+    return NextResponse.json({ error: 'Invalid file format. Please save the workbook as Excel (.xlsx) and upload it again.' }, { status: 400 });
+  }
+
+  const allowedMimes = [
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'application/vnd.ms-excel',
+    'application/octet-stream',
+    'application/zip',
+  ];
+  if (file.type && !allowedMimes.includes(file.type)) {
+    return NextResponse.json({ error: 'Invalid file type. Please upload a valid Excel workbook.' }, { status: 400 });
+  }
 
   const arrayBuffer = await file.arrayBuffer();
   const buffer = Buffer.from(arrayBuffer);
@@ -288,7 +339,9 @@ export async function POST(request, { params }) {
 
   // 1. FAST PRE-FETCH FOR CACHING
   const [studentsRes, regsRes] = await Promise.all([
-    supabaseAdmin.from('students').select('id, student_unique_id, card_number, email, surname, first_name, middle_name, batch_id, phone, home_address, local_government, country_of_residence, next_of_kin, next_of_kin_phone, next_of_kin_relationship'),
+    // Trashed students must never suppress a new import into an active batch.
+    // They remain in the trash until explicitly restored there.
+    supabaseAdmin.from('students').select('id, student_unique_id, card_number, email, surname, first_name, middle_name, batch_id, phone, home_address, local_government, country_of_residence, next_of_kin, next_of_kin_phone, next_of_kin_relationship').is('deleted_at', null),
     supabaseAdmin.from('registrations').select('id, student_id, batch_id, stage, department').eq('batch_id', batchId),
   ]);
 
@@ -325,16 +378,52 @@ export async function POST(request, { params }) {
     }
   });
 
-  async function safeInsertStudent(studentPayload) {
-    let payload = { ...studentPayload };
-    let { data, error } = await supabaseAdmin.from('students').insert(payload).select('id, student_unique_id, surname, first_name, middle_name, email, card_number, batch_id').single();
+  // Discover available columns on the students table to avoid schema mismatch
+  const { data: sampleRow } = await supabaseAdmin.from('students').select('*').limit(1);
+  const validStudentColumns = new Set(
+    sampleRow && sampleRow[0]
+      ? Object.keys(sampleRow[0])
+      : [
+          'id', 'student_unique_id', 'batch_id', 'surname', 'first_name', 'middle_name',
+          'email', 'phone', 'date_of_birth', 'gender', 'home_address', 'local_government',
+          'state_of_origin', 'nationality', 'education', 'church_join_date', 'challenges',
+          'photo_url', 'card_number', 'country_of_residence', 'next_of_kin', 'next_of_kin_address'
+        ]
+  );
 
-    while (error && error.message) {
-      const match = error.message.match(/Could not find the '([^']+)' column of 'students'/i);
+  function filterStudentPayload(payload) {
+    const clean = {};
+    for (const [k, v] of Object.entries(payload)) {
+      if (validStudentColumns.has(k) && v !== undefined) {
+        clean[k] = v;
+      }
+    }
+    return clean;
+  }
+
+  async function safeInsertStudent(studentPayload) {
+    let payload = filterStudentPayload(studentPayload);
+    let { data, error } = await supabaseAdmin
+      .from('students')
+      .insert(payload)
+      .select('id, student_unique_id, surname, first_name, middle_name, email, card_number, batch_id')
+      .single();
+
+    // Defensive fallback: if schema cache desync occurs, update known column set and retry bounded
+    let retries = 0;
+    while (error && retries < 3) {
+      const match = (error.message || '').match(/column ['"]?([a-zA-Z0-9_]+)['"]? of ['"]?students['"]?/i)
+        || (error.details || '').match(/column ['"]?([a-zA-Z0-9_]+)['"]? does not exist/i);
       if (match && match[1]) {
         const badCol = match[1];
+        validStudentColumns.delete(badCol);
         delete payload[badCol];
-        const retryRes = await supabaseAdmin.from('students').insert(payload).select('id, student_unique_id, surname, first_name, middle_name, email, card_number, batch_id').single();
+        retries++;
+        const retryRes = await supabaseAdmin
+          .from('students')
+          .insert(payload)
+          .select('id, student_unique_id, surname, first_name, middle_name, email, card_number, batch_id')
+          .single();
         data = retryRes.data;
         error = retryRes.error;
       } else {
@@ -345,16 +434,21 @@ export async function POST(request, { params }) {
   }
 
   async function safeUpdateStudent(studentId, updatePayload) {
-    if (!updatePayload || Object.keys(updatePayload).length === 0) return;
-    let payload = { ...updatePayload };
+    let payload = filterStudentPayload(updatePayload);
+    if (!payload || Object.keys(payload).length === 0) return;
+
     let { error } = await supabaseAdmin.from('students').update(payload).eq('id', studentId);
 
-    while (error && error.message) {
-      const match = error.message.match(/Could not find the '([^']+)' column of 'students'/i);
+    let retries = 0;
+    while (error && retries < 3) {
+      const match = (error.message || '').match(/column ['"]?([a-zA-Z0-9_]+)['"]? of ['"]?students['"]?/i)
+        || (error.details || '').match(/column ['"]?([a-zA-Z0-9_]+)['"]? does not exist/i);
       if (match && match[1]) {
         const badCol = match[1];
+        validStudentColumns.delete(badCol);
         delete payload[badCol];
         if (Object.keys(payload).length === 0) break;
+        retries++;
         const retryRes = await supabaseAdmin.from('students').update(payload).eq('id', studentId);
         error = retryRes.error;
       } else {
@@ -363,7 +457,9 @@ export async function POST(request, { params }) {
     }
   }
 
-  async function resolveOrCreateStudentFast(headerMap, rowValues) {
+  const pendingStudentResolutions = new Map();
+
+  async function resolveOrCreateStudent(headerMap, rowValues) {
     const cardNo = toStr(resolveFieldValue(headerMap, 'CARD_NO', rowValues, warnings));
     const fullName = toStr(resolveFieldValue(headerMap, 'NAME', rowValues, warnings));
 
@@ -449,6 +545,32 @@ export async function POST(request, { params }) {
     return null;
   }
 
+  // Concurrent worksheet processing must still treat duplicate rows as one
+  // student before any insert is sent to the database.
+  async function resolveOrCreateStudentFast(headerMap, rowValues) {
+    const cardNo = toStr(resolveFieldValue(headerMap, 'CARD_NO', rowValues));
+    const fullName = toStr(resolveFieldValue(headerMap, 'NAME', rowValues));
+    const email = toStr(resolveFieldValue(headerMap, 'EMAIL', rowValues));
+    const keys = [
+      cardNo && `card:${cardNo.toUpperCase()}`,
+      email && `email:${email.toLowerCase()}`,
+      fullName && `name:${fullName.toUpperCase()}`,
+    ].filter(Boolean);
+
+    const pending = keys.map((key) => pendingStudentResolutions.get(key)).find(Boolean);
+    if (pending) return pending;
+
+    const task = resolveOrCreateStudent(headerMap, rowValues);
+    keys.forEach((key) => pendingStudentResolutions.set(key, task));
+    try {
+      return await task;
+    } finally {
+      keys.forEach((key) => {
+        if (pendingStudentResolutions.get(key) === task) pendingStudentResolutions.delete(key);
+      });
+    }
+  }
+
   async function ensureRegistrationFast(studentId, stage, department = null) {
     const key = `${studentId}_${stage}`;
     if (regMap.has(key)) {
@@ -459,7 +581,7 @@ export async function POST(request, { params }) {
       return regId;
     }
 
-    const { data: newReg } = await supabaseAdmin
+    const { data: newReg, error: registrationInsertError } = await supabaseAdmin
       .from('registrations')
       .insert({ student_id: studentId, batch_id: batchId, stage, department: department || null })
       .select('id')
@@ -470,7 +592,11 @@ export async function POST(request, { params }) {
       return newReg.id;
     }
 
-    const { data: existingReg } = await supabaseAdmin
+    if (registrationInsertError) {
+      errors.push(`Registration Error (${stage}): ${registrationInsertError.message}`);
+    }
+
+    const { data: existingReg, error: existingRegistrationError } = await supabaseAdmin
       .from('registrations')
       .select('id')
       .eq('student_id', studentId)
@@ -484,6 +610,10 @@ export async function POST(request, { params }) {
         await supabaseAdmin.from('registrations').update({ department }).eq('id', existingReg.id);
       }
       return existingReg.id;
+    }
+
+    if (existingRegistrationError) {
+      errors.push(`Registration Lookup Error (${stage}): ${existingRegistrationError.message}`);
     }
 
     return null;
@@ -532,9 +662,8 @@ export async function POST(request, { params }) {
       // 1. Master Biodata Sheet
       if (isBioSheet) {
         let bioCount = 0;
-        for (let i = 0; i < dataRows.length; i++) {
+        await mapWithConcurrency(dataRows, async (rowValues, i) => {
           try {
-            const rowValues = dataRows[i];
             const studentId = await resolveOrCreateStudentFast(headerMap, rowValues);
             if (studentId) {
               bioCount++;
@@ -559,16 +688,15 @@ export async function POST(request, { params }) {
           } catch (rowErr) {
             warnings.push(`Bio Sheet Row ${i + 1} Error: ${rowErr.message}`);
           }
-        }
+        });
         sheetSummary[ws.name] = { headerRowIndex: headerIdx + 1, dataRowsRead: dataRows.length, studentsProcessed: bioCount };
       }
 
       // 2. Membership Grades Sheet
       if (isMemSheet) {
         let memCount = 0;
-        for (let i = 0; i < dataRows.length; i++) {
+        await mapWithConcurrency(dataRows, async (rowValues, i) => {
           try {
-            const rowValues = dataRows[i];
             const targetStudentId = await resolveOrCreateStudentFast(headerMap, rowValues);
 
             if (targetStudentId) {
@@ -599,7 +727,7 @@ export async function POST(request, { params }) {
           } catch (rowErr) {
             warnings.push(`MEM Sheet Row ${i + 1} Error: ${rowErr.message}`);
           }
-        }
+        });
         sheetSummary[ws.name] = { headerRowIndex: headerIdx + 1, dataRowsRead: dataRows.length, gradesParsed: memCount, hasScoreData: true };
       }
 
@@ -608,9 +736,8 @@ export async function POST(request, { params }) {
         let mitCount = 0;
         let scoreCellsFound = false;
 
-        for (let i = 0; i < dataRows.length; i++) {
+        await mapWithConcurrency(dataRows, async (rowValues, i) => {
           try {
-            const rowValues = dataRows[i];
             const targetStudentId = await resolveOrCreateStudentFast(headerMap, rowValues);
 
             if (targetStudentId) {
@@ -651,7 +778,7 @@ export async function POST(request, { params }) {
           } catch (rowErr) {
             warnings.push(`MIT Sheet Row ${i + 1} Error: ${rowErr.message}`);
           }
-        }
+        });
 
         if (!scoreCellsFound) {
           dataEntryGaps.push(`MIT - 200: ${dataRows.length} student rows found, but score cells (Midterm, Final Exam) are blank in source Excel file.`);
@@ -664,9 +791,8 @@ export async function POST(request, { params }) {
         let procCount = 0;
         let scoreCellsFound = false;
 
-        for (let i = 0; i < dataRows.length; i++) {
+        await mapWithConcurrency(dataRows, async (rowValues, i) => {
           try {
-            const rowValues = dataRows[i];
             const targetStudentId = await resolveOrCreateStudentFast(headerMap, rowValues);
 
             if (targetStudentId) {
@@ -703,7 +829,7 @@ export async function POST(request, { params }) {
           } catch (rowErr) {
             warnings.push(`PRO Sheet Row ${i + 1} Error: ${rowErr.message}`);
           }
-        }
+        });
 
         if (!scoreCellsFound) {
           dataEntryGaps.push(`PRO - 300: ${dataRows.length} student rows found, but score cells (Project, Influence) are blank in source Excel file.`);
@@ -770,6 +896,30 @@ export async function POST(request, { params }) {
     gradesUpdated += await safeUpsert('proclaimers_grades', uniqueProcGrades);
   }
 
+  // Fetch batch info for audit trail
+  const { data: bData } = await supabaseAdmin
+    .from('batches')
+    .select('batch_name, batch_code, programme_type')
+    .eq('id', batchId)
+    .maybeSingle();
+
+  const batchName = bData?.batch_name || 'Batch';
+  await logAdminAction({
+    action: 'BATCH_IMPORT',
+    entityType: 'batch',
+    entityId: batchId,
+    actor: user,
+    details: {
+      entity_name: batchName,
+      batch_code: bData?.batch_code || null,
+      programme_type: bData?.programme_type || null,
+      students_processed: studentsProcessed,
+      grades_updated: gradesUpdated,
+      retakes_processed: retakesProcessed,
+      summary: `Imported Excel data into "${batchName}" (${studentsProcessed} students processed, ${gradesUpdated} grades updated)`,
+    },
+  });
+
   return NextResponse.json({
     success: true,
     studentsProcessed,
@@ -781,4 +931,10 @@ export async function POST(request, { params }) {
     errors,
     retakingStudents,
   });
+  } catch (error) {
+    console.error('Batch import failed:', error);
+    return NextResponse.json({
+      error: error instanceof Error ? error.message : 'The workbook could not be imported.',
+    }, { status: 500 });
+  }
 }

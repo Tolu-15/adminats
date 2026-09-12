@@ -1,83 +1,104 @@
-# ATS Membership Registration App
+# ATS Membership Registration & Administration App
 
-Replaces the Microsoft Form with a full system:
+A full-featured membership registration, grading, and administrative management platform built with Next.js, Supabase, Cloudflare R2, and Cloudflare Turnstile.
 
-- Admin creates a **batch** (e.g. "Batch 056") → gets a unique registration link
-- Students register via that link → a **profile** is auto-created with a **unique Student ID** (e.g. `ATS-2026-0001`) and an optional **photo**
-- Every registration is saved to **Supabase** (database of record) and synced to a **Google Sheet**
-- Admin dashboard lists batches, students per batch, and full student profiles
+Replaces paper and Microsoft Form workflows with an end-to-end automated system:
+- **Batch Management**: Admins create batches (Membership, MIT, Proclaimers) and receive unique, branded registration links.
+- **Public Registration**: Students register online with client-side image compression, Turnstile bot protection, and atomic profile creation.
+- **Unique Student ID Generation**: Generates sequential, collision-free identifiers (e.g., `ATS-2026-0001`) via Postgres RPC.
+- **Academic Grading & Transcripts**: Track attendance, assignments, assessments, exams, and completion status across programmes.
+- **Data Export & Import**: Export batch records to Excel (`.xlsx`) with secure RFC 5987 headers; bulk import student and grade data with schema validation.
+- **Edge Security & Audit Trail**: Edge middleware guards `/admin/*` routes; every administrative edit and deletion is tracked in `audit_logs`.
 
-## 1. Supabase setup
+---
 
-1. Open your Supabase project → **SQL Editor** → paste and run everything in `schema.sql`.
-   This creates the `batches` and `students` tables, the unique-ID generator, Row Level
-   Security policies, and a public `student-photos` storage bucket.
-2. Go to **Authentication → Users** and manually create your admin login(s) (email + password).
-   These are the only accounts that can sign in to `/admin`.
-3. Go to **Project Settings → API** and copy:
-   - Project URL → `NEXT_PUBLIC_SUPABASE_URL`
-   - `anon` public key → `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-   - `service_role` key → `SUPABASE_SERVICE_ROLE_KEY` (keep secret, server-only)
+## 1. Environment Variables Reference
 
-## 2. Google Sheets sync setup
+Create a `.env.local` file in the root directory:
 
-1. In Google Cloud Console, create a project (or reuse one) → enable the **Google Sheets API**.
-2. Create a **Service Account** → generate a JSON key.
-3. From the JSON, copy `client_email` → `GOOGLE_SERVICE_ACCOUNT_EMAIL`, and `private_key` →
-   `GOOGLE_PRIVATE_KEY` (keep the `\n` characters as literal text, wrapped in quotes).
-4. Create (or open) the Google Sheet you want registrations to land in. Share it with the
-   service account's email address, giving it **Editor** access.
-5. Copy the Sheet ID from its URL (`https://docs.google.com/spreadsheets/d/THIS_PART/edit`)
-   into `GOOGLE_SHEET_ID`.
-6. Add a tab named `Registrations` (or set `GOOGLE_SHEET_TAB_NAME` to whatever you name it),
-   and optionally paste the header row from `lib/googleSheets.js` (`SHEET_HEADER_ROW`) as row 1.
+| Variable | Required | Scope | Description |
+|---|---|---|---|
+| `NEXT_PUBLIC_SUPABASE_URL` | **Yes** | Client/Server | Supabase Project URL (e.g. `https://xyz.supabase.co`) |
+| `SUPABASE_URL` | Optional | Server-only | Optional server-side Supabase URL override |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | **Yes** | Client/Server | Supabase anonymous public API key |
+| `SUPABASE_SERVICE_ROLE_KEY` | **Yes** | Server-only | Supabase service-role secret key for administrative operations |
+| `R2_ENDPOINT` | **Yes** | Server-only | Cloudflare R2 S3 API endpoint URL |
+| `R2_ACCESS_KEY_ID` | **Yes** | Server-only | Cloudflare R2 API Access Key ID |
+| `R2_SECRET_ACCESS_KEY` | **Yes** | Server-only | Cloudflare R2 API Secret Access Key |
+| `R2_BUCKET_NAME` | **Yes** | Server-only | Cloudflare R2 bucket name for storing student photos |
+| `NEXT_PUBLIC_R2_PUBLIC_URL` | **Yes** | Client/Server | Public CDN URL for student photos (e.g. `https://pub-xyz.r2.dev`) |
+| `NEXT_PUBLIC_TURNSTILE_SITE_KEY`| **Yes** | Client/Server | Cloudflare Turnstile widget site key |
+| `TURNSTILE_SECRET_KEY` | **Yes** | Server-only | Cloudflare Turnstile secret key for server-side verification |
+| `NEXT_PUBLIC_ENABLE_TURNSTILE_LOCAL` | Optional | Client/Server | Set to `true` to force Turnstile captcha evaluation in local dev |
+| `NEXT_PUBLIC_BASE_URL` | Optional | Client/Server | Public application URL (e.g. `https://membership.atscentre.org`) |
+| 
 
-If these env vars are left unset, the app still works — it just skips the Sheets sync and
-logs a warning, since Supabase is always the source of truth.
+## 2. Database Setup & Migrations
 
-## 3. Configure environment variables
+All SQL migrations are idempotent and can be executed via the **Supabase SQL Editor**:
 
-Copy `.env.local.example` to `.env.local` and fill in every value from steps 1–2.
+1. **`schema.sql`**
+   - Core tables: `batches`, `students`, `registrations`, `membership_grades`, `mit_grades`, `proclaimers_grades`, `student_next_of_kin`, `student_spiritual_profile`.
+   - Initial RLS policies and table indices.
 
-## 4. Run locally
+2. **`supabase/student_id_sequence.sql`**
+   - Atomic student sequence counter table (`batch_student_sequences`).
+   - `generate_student_id(p_batch_id uuid)` Postgres function to eliminate signup race conditions.
+
+3. **`supabase/create_student_full.sql`**
+   - Atomic transactional student registration RPC function (`create_student_full`).
+   - Ensures student biodata, next-of-kin, spiritual profile, and initial stage registration succeed or fail together.
+
+4. **`supabase/audit_log_and_soft_delete.sql`**
+   - Creates the `audit_logs` table and RLS policies.
+   - Adds `deleted_at` soft-delete timestamp columns to `students` and `batches` with indexing.
+
+---
+
+## 3. Local Development & Scripts
+
+### Prerequisites
+- Node.js 18+ (tested on Node.js 20 LTS)
+- npm
+
+### Installation & Execution
 
 ```bash
+# Install dependencies
 npm install
+
+# Start local Next.js dev server on localhost:3000
 npm run dev
+
+# Run automated unit & regression tests
+npm test
+
+# Build production bundle
+npm run build
+
+# Start production server
+npm start
 ```
 
-Visit `http://localhost:3000/admin/login` to sign in as admin.
+---
 
-## 5. Deploy
+## 4. Security Architecture & Controls
 
-Push this project to GitHub and deploy on **Vercel** (recommended for Next.js):
+- **Edge Middleware (`middleware.js`)**: Evaluates incoming requests to `/admin/*` at the edge; unauthenticated sessions are immediately redirected to `/admin/login?next=...` before any admin assets are served.
+- **Role Guard Fallbacks**: `useAdminGuard` defaults unassigned users to `'viewer'` (least privileged access), never `'admin'`.
+- **Atomic Multi-Step Writes**: Registration operations use transactional Postgres functions to prevent partial failure orphans.
+- **Server-Side Validation**: All incoming biodata is strictly validated via `lib/validators.js` (email RFC format, E.164 phone formats, and maximum field length constraints).
+- **PostgREST Injection Protection**: User search queries are sanitized before being interpolated into PostgREST `.or()` filters.
+- **RFC 5987 Export Headers**: Student roster downloads encode filenames with `filename*=UTF-8''...` to eliminate header injection attacks.
+- **Restricted Image Proxy**: Next.js image optimization is restricted to configured R2 hostnames, preventing SSRF attacks.
+- **Audit Logging (`lib/auditLog.js`)**: Admin mutations (`STUDENT_UPDATE`, `STUDENT_DELETE`, `BATCH_DELETE`, `GRADE_UPDATE`) record non-blocking audit entries capturing the actor, entity, timestamp, and metadata.
+- **Soft Deletion**: Records support soft-deletion (`deleted_at`), with graceful fallback to cascade cleanup.
 
-1. Import the repo in Vercel.
-2. Add all variables from `.env.local` in Project Settings → Environment Variables.
-3. Set `NEXT_PUBLIC_BASE_URL` to your production URL once you have it.
-4. Deploy.
+---
 
-## How the flow works
+## 5. Production Deployment (Vercel)
 
-1. **Admin creates a batch** on `/admin` (e.g. code `056`, name "Batch 056"). This generates
-   a random link token and stores it as `reg_token`. The shareable link is:
-   `https://yourapp.com/register/<reg_token>`
-2. **A student opens that link**, fills in their biodata, optionally uploads a photo
-   (uploaded straight to Supabase Storage), and submits.
-3. The `/api/register` route (server-side, using the Supabase **service role** key):
-   - validates the batch is active
-   - calls the `generate_student_id()` Postgres function to atomically issue a unique ID
-   - inserts the student record
-   - appends a row to the configured Google Sheet
-4. The student sees their unique Student ID as confirmation.
-5. Admins browse `/admin` → batch → student profile, including the uploaded photo.
-
-## Notes / next steps you may want
-
-- Admin auth here is Supabase email/password via the client SDK — enough for a small team.
-  For stricter protection, add Supabase's `@supabase/ssr` middleware to gate `/admin/*` at
-  the edge as well.
-- `student_unique_id` format is `ATS-<year>-<0001>`; edit `generate_student_id()` in
-  `schema.sql` if you want a different pattern.
-- To deactivate a batch's link, set `is_active = false` on that row in Supabase (or add a
-  toggle button in the dashboard — the API/schema already support it).
+1. Connect the Git repository to **Vercel**.
+2. Configure the environment variables from the table above in **Project Settings → Environment Variables**.
+3. Set `NEXT_PUBLIC_BASE_URL` to your production domain.
+4. Deploy the main branch.

@@ -16,9 +16,13 @@ export default function AdminLogin() {
     e.preventDefault();
     setError('');
     setLoading(true);
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     setLoading(false);
     if (error) { setError(error.message); return; }
+    if (data?.session?.access_token && typeof document !== 'undefined') {
+      const secure = window.location.protocol === 'https:' ? '; Secure' : '';
+      document.cookie = `sb-access-token=${encodeURIComponent(data.session.access_token)}; path=/; SameSite=Lax${secure}`;
+    }
     router.push('/admin');
   }
 

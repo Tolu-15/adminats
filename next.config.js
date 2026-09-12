@@ -11,15 +11,17 @@ const securityHeaders = [
     value: [
       "default-src 'self'",
       // Scripts: self + inline; allow 'unsafe-eval' in dev mode for React HMR & debugging
-      `script-src 'self' 'unsafe-inline' ${process.env.NODE_ENV !== 'production' ? "'unsafe-eval'" : ""}`.trim(),
+      `script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com ${process.env.NODE_ENV !== 'production' ? "'unsafe-eval'" : ""}`.trim(),
       // Styles: self + Google Fonts + cdnjs (Font Awesome)
       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com",
       // Fonts: self + Google Fonts CDN + cdnjs (Font Awesome webfonts)
       "font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com",
       // Images: self + data URIs (for inline SVGs / base64 thumbnails) + blob (file previews)
       "img-src 'self' data: blob: https:",
-      // Fetch / XHR: self + Supabase project URL
-      "connect-src 'self' https://*.supabase.co wss://*.supabase.co",
+      // Fetch / XHR: self + Supabase project URL + Turnstile verification assets
+      "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://challenges.cloudflare.com",
+      // Allow Cloudflare Turnstile challenge iframe
+      "frame-src https://challenges.cloudflare.com",
       // Disallow all framing (see also X-Frame-Options below)
       "frame-ancestors 'none'",
       // No plugins, objects, or embeds
@@ -74,9 +76,28 @@ const securityHeaders = [
   },
 ];
 
+const r2HostPatterns = [
+  { protocol: 'https', hostname: '*.r2.dev' },
+  { protocol: 'https', hostname: '*.r2.cloudflarestorage.com' },
+];
+
+if (process.env.NEXT_PUBLIC_R2_PUBLIC_URL) {
+  try {
+    const url = new URL(process.env.NEXT_PUBLIC_R2_PUBLIC_URL);
+    if (url.hostname && !r2HostPatterns.some((p) => p.hostname === url.hostname)) {
+      r2HostPatterns.unshift({
+        protocol: url.protocol.replace(':', ''),
+        hostname: url.hostname,
+      });
+    }
+  } catch {
+    // Ignore invalid URL
+  }
+}
+
 const nextConfig = {
   images: {
-    remotePatterns: [{ protocol: 'https', hostname: '**' }],
+    remotePatterns: r2HostPatterns,
   },
 
   async headers() {
@@ -142,4 +163,3 @@ const nextConfig = {
 };
 
 module.exports = nextConfig;
-

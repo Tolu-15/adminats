@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../../../../lib/supabaseAdmin';
 import { requireAdmin } from '../../../../../../lib/requireAdmin';
+import { logAdminAction } from '../../../../../../lib/auditLog';
 
 /**
  * GET /api/mit/registrations/[id]/grades
@@ -57,6 +58,20 @@ export async function PATCH(request, { params }) {
     return NextResponse.json({ error: 'Invalid JSON.' }, { status: 400 });
   }
 
+  // Pre-fetch registration and student info
+  const { data: reg } = await supabaseAdmin
+    .from('registrations')
+    .select('id, department, student_id, membership_student:students(id, first_name, surname, student_unique_id)')
+    .eq('id', id)
+    .maybeSingle();
+
+  // Pre-fetch existing MIT grades to calculate exact diff
+  const { data: existingGrade } = await supabaseAdmin
+    .from('mit_grades')
+    .select('*')
+    .eq('registration_id', id)
+    .maybeSingle();
+
   const allowed = [
     'class', 'trainer', 'midterm_test', 'interactions', 'bible_study',
     'assignment', 'attendance', 'cth', 'community_service', 'evangelism',
@@ -75,6 +90,23 @@ export async function PATCH(request, { params }) {
 
   payload.updated_at = new Date().toISOString();
 
+  // Calculate field diffs
+  const actuallyModifiedFields = [];
+  const changes = {};
+
+  for (const key of allowed) {
+    if (key in payload) {
+      const oldVal = existingGrade ? existingGrade[key] : null;
+      const newVal = payload[key];
+      const normOld = oldVal == null || oldVal === '' ? null : String(oldVal).trim();
+      const normNew = newVal == null || newVal === '' ? null : String(newVal).trim();
+      if (normOld !== normNew) {
+        actuallyModifiedFields.push(key);
+        changes[key] = { from: oldVal ?? null, to: newVal ?? null };
+      }
+    }
+  }
+
   // Upsert grade record linked to registration_id
   const { error: dbError } = await supabaseAdmin
     .from('mit_grades')
@@ -86,6 +118,12 @@ export async function PATCH(request, { params }) {
 
   // Keep department synced in registrations table if updated
   if (body.department !== undefined) {
+    const oldDept = reg?.department || null;
+    const newDept = body.department || null;
+    if (oldDept !== newDept) {
+      actuallyModifiedFields.push('department');
+      changes.department = { from: oldDept, to: newDept };
+    }
     await supabaseAdmin
       .from('registrations')
       .update({ department: body.department })
@@ -98,6 +136,41 @@ export async function PATCH(request, { params }) {
     .select('*')
     .eq('registration_id', id)
     .maybeSingle();
+
+  const st = reg?.membership_student;
+  const studentName = st ? [st.first_name, st.surname].filter(Boolean).join(' ') : 'Student';
+
+  let gradeSummary = '';
+  if (actuallyModifiedFields.length === 0) {
+    gradeSummary = `Re-saved MIT grades for ${studentName} (no values changed)`;
+  } else if (actuallyModifiedFields.length === 1) {
+    const f = actuallyModifiedFields[0];
+    const diff = changes[f];
+    const fromStr = diff?.from != null ? `"${diff.from}"` : '(empty)';
+    const toStr = diff?.to != null ? `"${diff.to}"` : '(cleared)';
+    gradeSummary = `Updated MIT ${f.replace(/_/g, ' ')} (${fromStr} → ${toStr}) for ${studentName}`;
+  } else {
+    gradeSummary = `Updated MIT grades for ${studentName} (modified: ${actuallyModifiedFields.slice(0, 3).map((f) => f.replace(/_/g, ' ')).join(', ')}${actuallyModifiedFields.length > 3 ? ` +${actuallyModifiedFields.length - 3} more` : ''})`;
+  }
+
+  await logAdminAction({
+    action: 'GRADE_UPDATE',
+    entityType: 'grades',
+    entityId: updatedGrade?.id || id,
+    actor: user,
+    details: {
+      programme: 'mit',
+      entity_name: studentName,
+      student_id: st?.id || reg?.student_id || null,
+      student_unique_id: st?.student_unique_id || null,
+      summary: gradeSummary,
+      registration_id: id,
+      actually_modified_fields: actuallyModifiedFields,
+      changes,
+      final_grades: updatedGrade?.final_grades ?? null,
+      status: updatedGrade?.status ?? null,
+    },
+  });
 
   return NextResponse.json(
     { success: true, grades: updatedGrade },

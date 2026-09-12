@@ -20,7 +20,7 @@ export default function BatchTable({ batches, onCopyLink }) {
           {batches.map((b) => (
             <tr key={b.id}>
               <td><Link href={`/admin/batch/${b.id}`} style={{ fontWeight: 600, color: 'var(--navy)' }}>{b.batch_name}</Link></td>
-              <td>{b.students?.[0]?.count ?? 0}</td>
+              <td>{b.registration_counts?.total ?? b.active_student_count ?? b.students?.[0]?.count ?? 0}</td>
               <td className="muted" style={{ fontSize: '0.82rem' }}>/register/{b.reg_token}</td>
               <td>
                 <button className="btn btn-outline btn-sm" onClick={() => onCopyLink(b.reg_token)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>

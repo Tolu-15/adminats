@@ -1,5 +1,10 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../../lib/supabaseAdmin';
+import {
+  dateOfBirthMatches,
+  dateOfBirthMismatchResponse,
+  dateOfBirthRequiredResponse,
+} from '../../../../lib/studentVerification';
 
 export async function POST(request) {
   let body;
@@ -7,13 +12,21 @@ export async function POST(request) {
     return NextResponse.json({ error: 'Invalid JSON body.' }, { status: 400 });
   }
 
-  const { batch_id, query } = body;
+  const { batch_id, query, date_of_birth } = body;
 
-  if (!batch_id || !query) {
-    return NextResponse.json({ error: 'batch_id and student ID/card number are required.' }, { status: 400 });
+  if (!batch_id || !query || !date_of_birth) {
+    return NextResponse.json(dateOfBirthRequiredResponse(), { status: 400 });
   }
 
-  const q = query.trim();
+  const rawQ = (query || '').trim();
+  if (!rawQ) {
+    return NextResponse.json({ error: 'Student ID or card number is required.' }, { status: 400 });
+  }
+
+  if (!/^[a-zA-Z0-9\-\/\s]+$/.test(rawQ)) {
+    return NextResponse.json({ error: 'Invalid search format.' }, { status: 400 });
+  }
+  const q = rawQ.replace(/\s+/g, ' ');
 
   // 1. Verify batch exists and is active
   const { data: batch, error: batchErr } = await supabaseAdmin
@@ -26,14 +39,29 @@ export async function POST(request) {
   if (!batch.is_active) return NextResponse.json({ error: 'This batch is no longer active.' }, { status: 400 });
 
   // 2. Find student by ID or card number
-  const { data: student, error: sErr } = await supabaseAdmin
+  const studentFields = 'id, first_name, surname, student_unique_id, card_number, batch_id, date_of_birth';
+
+  let { data: student, error: sErr } = await supabaseAdmin
     .from('students')
-    .select('id, first_name, surname, student_unique_id, card_number, batch_id')
-    .or(`student_unique_id.eq.${q},card_number.eq.${q}`)
+    .select(studentFields)
+    .eq('student_unique_id', q)
     .maybeSingle();
+
+  if (!sErr && !student) {
+    const cardRes = await supabaseAdmin
+      .from('students')
+      .select(studentFields)
+      .eq('card_number', q)
+      .maybeSingle();
+    student = cardRes.data;
+    sErr = cardRes.error;
+  }
 
   if (sErr) return NextResponse.json({ error: sErr.message }, { status: 500 });
   if (!student) return NextResponse.json({ error: 'No student found with that ID or card number. Please check and try again.' }, { status: 404 });
+  if (!dateOfBirthMatches(student.date_of_birth, date_of_birth)) {
+    return NextResponse.json(dateOfBirthMismatchResponse(), { status: 403 });
+  }
 
   // 3. Get existing membership registration & grade
   let { data: memReg } = await supabaseAdmin

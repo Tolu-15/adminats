@@ -1,24 +1,49 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../../lib/supabaseAdmin';
+import {
+  dateOfBirthMatches,
+  dateOfBirthMismatchResponse,
+  dateOfBirthRequiredResponse,
+} from '../../../../lib/studentVerification';
 
 export async function GET(request) {
-  const { searchParams } = new URL(request.url);
-  const q = (searchParams.get('q') || '').trim();
-  if (!q) return NextResponse.json({ error: 'Query required.' }, { status: 400 });
+  const rawQ = (searchParams.get('q') || '').trim();
+  const dateOfBirth = (searchParams.get('date_of_birth') || '').trim();
+  if (!rawQ || !dateOfBirth) return NextResponse.json(dateOfBirthRequiredResponse(), { status: 400 });
+
+  if (!/^[a-zA-Z0-9\-\/\s]+$/.test(rawQ)) {
+    return NextResponse.json({ error: 'Invalid search format.' }, { status: 400 });
+  }
+  const q = rawQ.replace(/\s+/g, ' ');
 
   // 1. Search student
-  const { data: student, error } = await supabaseAdmin
+  const studentFields = `
+    id, student_unique_id, surname, first_name, middle_name,
+    phone, email, date_of_birth, gender, photo_url,
+    card_number, church_join_date, batch_id
+  `;
+
+  let { data: student, error } = await supabaseAdmin
     .from('students')
-    .select(`
-      id, student_unique_id, surname, first_name, middle_name,
-      phone, email, date_of_birth, gender, photo_url,
-      card_number, church_join_date, batch_id
-    `)
-    .or(`student_unique_id.eq.${q},card_number.eq.${q}`)
+    .select(studentFields)
+    .eq('student_unique_id', q)
     .maybeSingle();
+
+  if (!error && !student) {
+    const cardRes = await supabaseAdmin
+      .from('students')
+      .select(studentFields)
+      .eq('card_number', q)
+      .maybeSingle();
+    student = cardRes.data;
+    error = cardRes.error;
+  }
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   if (!student) return NextResponse.json({ error: 'No student found with that ID or card number.' }, { status: 404 });
+  if (!dateOfBirthMatches(student.date_of_birth, dateOfBirth)) {
+    return NextResponse.json(dateOfBirthMismatchResponse(), { status: 403 });
+  }
 
   // 2. Check Membership PASSED via registrations -> membership_grades
   const { data: memReg } = await supabaseAdmin
@@ -77,7 +102,6 @@ export async function GET(request) {
       full_name: [student.first_name, student.middle_name, student.surname].filter(Boolean).join(' '),
       phone: student.phone,
       email: student.email,
-      date_of_birth: student.date_of_birth,
       gender: student.gender,
       photo_url: student.photo_url,
       card_number: student.card_number,

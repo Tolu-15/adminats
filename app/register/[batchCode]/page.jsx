@@ -8,6 +8,10 @@ import RegistrationForm from '../../../components/RegistrationForm';
 import Toast from '../../../components/Toast';
 import { getImageUrl } from '../../../lib/getImageUrl';
 
+const turnstileSiteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY || '';
+const shouldUseTurnstile = Boolean(turnstileSiteKey)
+  && (process.env.NODE_ENV === 'production' || process.env.NEXT_PUBLIC_ENABLE_TURNSTILE_LOCAL === 'true');
+
 const initialMemForm = {
   surname: '', first_name: '', middle_name: '', email: '', phone: '',
   date_of_birth: '', gender: '', is_first_timer: 'No', home_address: '', next_of_kin: '',
@@ -34,9 +38,12 @@ export default function RegisterPage() {
   const [memError, setMemError] = useState('');
   const [memToast, setMemToast] = useState('');
   const [memResult, setMemResult] = useState(null);
+  const [turnstileToken, setTurnstileToken] = useState('');
+  const [turnstileResetKey, setTurnstileResetKey] = useState(0);
 
   // Retake lookup state
   const [retakeQuery, setRetakeQuery] = useState('');
+  const [retakeDob, setRetakeDob] = useState('');
   const [retakeLookupLoading, setRetakeLookupLoading] = useState(false);
   const [retakeLookupError, setRetakeLookupError] = useState('');
   const [retakeStudent, setRetakeStudent] = useState(null); // found student info
@@ -47,6 +54,7 @@ export default function RegisterPage() {
   // --- 2. MIT / PROCLAIMERS LOOKUP & SUBMISSION STATE ---
   const [lookupStep, setLookupStep] = useState(1); // 1 = search, 2 = confirm, 3 = success
   const [query, setQuery] = useState('');
+  const [verificationDob, setVerificationDob] = useState('');
   const [lookupLoading, setLookupLoading] = useState(false);
   const [lookupError, setLookupError] = useState('');
   const [foundStudent, setFoundStudent] = useState(null);
@@ -82,6 +90,7 @@ export default function RegisterPage() {
     setProgramme(newProg);
     setLookupStep(1);
     setQuery('');
+    setVerificationDob('');
     setLookupError('');
     setFoundStudent(null);
     setDepartment('');
@@ -92,6 +101,7 @@ export default function RegisterPage() {
     setMemResult(null);
     setMemMode('new');
     setRetakeQuery('');
+    setRetakeDob('');
     setRetakeStudent(null);
     setRetakeLookupError('');
     setRetakeError('');
@@ -104,6 +114,7 @@ export default function RegisterPage() {
     setMemToast('');
     setMemResult(null);
     setRetakeQuery('');
+    setRetakeDob('');
     setRetakeStudent(null);
     setRetakeLookupError('');
     setRetakeError('');
@@ -127,6 +138,11 @@ export default function RegisterPage() {
         setMemError('Please fill in all required fields.');
         return;
       }
+    }
+
+    if (shouldUseTurnstile && !turnstileToken) {
+      setMemError('Please complete the security check.');
+      return;
     }
 
     // Age validation — minimum 16 years based on DOB
@@ -168,7 +184,12 @@ export default function RegisterPage() {
       const res = await fetch('/api/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...memForm, batch_id: batch.id, photo_url: finalPhotoUrl }),
+        body: JSON.stringify({
+          ...memForm,
+          batch_id: batch.id,
+          photo_url: finalPhotoUrl,
+          turnstileToken,
+        }),
       });
 
       const json = await res.json();
@@ -191,6 +212,8 @@ export default function RegisterPage() {
       }
     } finally {
       setMemSubmitting(false);
+      setTurnstileToken('');
+      setTurnstileResetKey((key) => key + 1);
     }
   }
 
@@ -199,11 +222,14 @@ export default function RegisterPage() {
     e.preventDefault();
     setRetakeLookupError('');
     setRetakeStudent(null);
-    if (!retakeQuery.trim()) return;
+    if (!retakeQuery.trim() || !retakeDob) {
+      setRetakeLookupError('Please enter your Student ID/card number and date of birth.');
+      return;
+    }
 
     setRetakeLookupLoading(true);
     try {
-      const res = await fetch(`/api/membership/lookup?q=${encodeURIComponent(retakeQuery.trim())}`);
+      const res = await fetch(`/api/membership/lookup?q=${encodeURIComponent(retakeQuery.trim())}&date_of_birth=${encodeURIComponent(retakeDob)}`);
       const json = await res.json();
       if (!res.ok) {
         setRetakeLookupError(json.error || 'Student not found.');
@@ -225,7 +251,7 @@ export default function RegisterPage() {
       const res = await fetch('/api/membership/retake', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ batch_id: batch.id, query: retakeQuery.trim() }),
+        body: JSON.stringify({ batch_id: batch.id, query: retakeQuery.trim(), date_of_birth: retakeDob }),
       });
       const json = await res.json();
       if (!res.ok) {
@@ -245,12 +271,15 @@ export default function RegisterPage() {
     e.preventDefault();
     setLookupError('');
     setFoundStudent(null);
-    if (!query.trim()) return;
+    if (!query.trim() || !verificationDob) {
+      setLookupError('Please enter your Student ID/card number and date of birth.');
+      return;
+    }
 
     setLookupLoading(true);
     const endpoint = programme === 'PROCLAIMERS' ? '/api/proclaimers/lookup' : '/api/mit/lookup';
     try {
-      const res = await fetch(`${endpoint}?q=${encodeURIComponent(query.trim())}`);
+      const res = await fetch(`${endpoint}?q=${encodeURIComponent(query.trim())}&date_of_birth=${encodeURIComponent(verificationDob)}`);
       const json = await res.json();
       if (!res.ok) {
         if (res.status === 403 && json.student) {
@@ -291,6 +320,7 @@ export default function RegisterPage() {
           batch_id: batch.id,
           membership_student_id: foundStudent.id,
           department: department.trim() || null,
+          date_of_birth: verificationDob,
         }),
       });
 
@@ -449,6 +479,9 @@ export default function RegisterPage() {
                     photoUrl={memPhotoUrl}
                     onPhotoSelected={(file) => setMemPhotoFile(file)}
                     onPhotoUploaded={(url) => setMemPhotoUrl(url)}
+                    turnstileSiteKey={shouldUseTurnstile ? turnstileSiteKey : ''}
+                    onTurnstileTokenChange={setTurnstileToken}
+                    turnstileResetKey={turnstileResetKey}
                   />
                 )}
               </>
@@ -497,6 +530,15 @@ export default function RegisterPage() {
                           style={{ paddingLeft: 40, fontSize: '1rem', letterSpacing: 0.5 }}
                         />
                       </div>
+                    </div>
+                    <div className="field">
+                      <label style={{ fontWeight: 600, color: 'var(--navy)' }}>Date of Birth *</label>
+                      <input
+                        type="date"
+                        value={retakeDob}
+                        onChange={(e) => setRetakeDob(e.target.value)}
+                        required
+                      />
                     </div>
 
                     {retakeLookupError && (
@@ -584,7 +626,7 @@ export default function RegisterPage() {
                         type="button"
                         className="btn btn-outline"
                         style={{ flex: 1 }}
-                        onClick={() => { setRetakeStudent(null); setRetakeQuery(''); }}
+                        onClick={() => { setRetakeStudent(null); setRetakeQuery(''); setRetakeDob(''); }}
                       >
                         ← Back
                       </button>
@@ -685,6 +727,15 @@ export default function RegisterPage() {
                       style={{ paddingLeft: 40, fontSize: '1rem', letterSpacing: 0.5 }}
                     />
                   </div>
+                </div>
+                <div className="field">
+                  <label style={{ fontWeight: 600, color: 'var(--navy)' }}>Date of Birth *</label>
+                  <input
+                    type="date"
+                    value={verificationDob}
+                    onChange={(e) => setVerificationDob(e.target.value)}
+                    required
+                  />
                 </div>
 
                 {lookupError && (
@@ -803,7 +854,7 @@ export default function RegisterPage() {
 
                 <div style={{ display: 'flex', gap: 10 }}>
                   <button type="button" className="btn btn-outline" style={{ flex: 1 }}
-                    onClick={() => { setLookupStep(1); setFoundStudent(null); setQuery(''); }}>
+                    onClick={() => { setLookupStep(1); setFoundStudent(null); setQuery(''); setVerificationDob(''); }}>
                     ← Back
                   </button>
                   <button type="submit" className="btn btn-primary" style={{ flex: 2, padding: '14px' }} disabled={submitting}>

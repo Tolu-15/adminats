@@ -1,5 +1,5 @@
 <<<<<<< HEAD
-# ATS Membership Registration & Administration App
+# ATS  Registration & Administration App
 
 A full-featured membership registration, grading, and administrative management platform built with Next.js, Supabase, Cloudflare R2, and Cloudflare Turnstile.
 

@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # ATS Membership Registration & Administration App
 
 A full-featured membership registration, grading, and administrative management platform built with Next.js, Supabase, Cloudflare R2, and Cloudflare Turnstile.
@@ -102,3 +103,6 @@ npm start
 2. Configure the environment variables from the table above in **Project Settings → Environment Variables**.
 3. Set `NEXT_PUBLIC_BASE_URL` to your production domain.
 4. Deploy the main branch.
+=======
+
+>>>>>>> 1b5d22eca1dda36064004e326f64eae7c24b8da6

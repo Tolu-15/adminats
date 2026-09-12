@@ -5,14 +5,22 @@ node_modules/
 .next/
 out/
 
-# Environment & Schema files
+# Environment files
 .env
+.env*
+.env.*
+*.env
+*.env.*
 .env.local
 .env.*.local
 .env.development.local
 .env.test.local
 .env.production.local
-schema.sql
+
+# SQL files & database dumps
+*.sql
+**/*.sql
+supabase/*.sql
 
 
 # Debug logs

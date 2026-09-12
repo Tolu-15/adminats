@@ -24,7 +24,6 @@ export default function BatchDetail({ params: paramsPromise }) {
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('ALL');
   const [showQrModal, setShowQrModal] = useState(false);
-  const [showSheetsModal, setShowSheetsModal] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
   // Import state
@@ -297,6 +296,7 @@ export default function BatchDetail({ params: paramsPromise }) {
     ...proclaimersRegs.map((r) => r.membership_student?.id || r.student_id),
   ].filter(Boolean));
   const uniqueStudentCount = uniqueStudentIds.size || students.length;
+  const totalCount = uniqueStudentCount;
 
   // Which tabs to show based on what exists
   const tabs = [
@@ -393,9 +393,6 @@ export default function BatchDetail({ params: paramsPromise }) {
               )}
               <button className="btn btn-outline btn-sm" onClick={downloadExcel}>
                 <i className="fa-solid fa-file-export"></i> Export Grade Sheet
-              </button>
-              <button className="btn btn-outline btn-sm" onClick={() => setShowSheetsModal(true)} title="Google Sheets Sync & Export">
-                <i className="fa-solid fa-table"></i> Google Sheets
               </button>
               {!session?.isViewer && (
                 <button
@@ -673,99 +670,6 @@ export default function BatchDetail({ params: paramsPromise }) {
               batch={batch}
               onClose={() => setShowQrModal(false)}
             />
-          )}
-
-          {/* Google Sheets Modal */}
-          {showSheetsModal && (
-            <div style={{
-              position: 'fixed',
-              inset: 0,
-              background: 'rgba(0,0,0,0.5)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              zIndex: 999,
-              padding: 16,
-            }}>
-              <div className="card" style={{ maxWidth: 520, width: '100%', padding: 24 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <div style={{
-                      width: 38,
-                      height: 38,
-                      borderRadius: 8,
-                      background: 'rgba(22,163,74,0.12)',
-                      color: '#16a34a',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      fontSize: '1.2rem',
-                    }}>
-                      <i className="fa-solid fa-table"></i>
-                    </div>
-                    <div>
-                      <h2 style={{ fontSize: '1.2rem', color: 'var(--navy)', margin: 0 }}>Google Sheets Integration</h2>
-                      <span className="muted text-sm">Batch: {batch?.batch_name}</span>
-                    </div>
-                  </div>
-                  <button
-                    className="btn btn-outline btn-sm"
-                    onClick={() => setShowSheetsModal(false)}
-                    style={{ borderRadius: '50%', width: 28, height: 28, padding: 0 }}
-                  >
-                    ✕
-                  </button>
-                </div>
-
-                <div style={{ marginBottom: 18 }}>
-                  <h3 style={{ fontSize: '0.92rem', color: 'var(--navy)', marginBottom: 6 }}>1. Open in Google Sheets</h3>
-                  <p className="muted text-sm" style={{ lineHeight: 1.5, marginBottom: 10 }}>
-                    You can export this batch’s multi-sheet grade roster as an Excel file and upload it straight to Google Sheets:
-                  </p>
-                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                    <button
-                      className="btn btn-primary btn-sm"
-                      onClick={() => { downloadExcel(); }}
-                      style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
-                    >
-                      <i className="fa-solid fa-download"></i> Download & Open
-                    </button>
-                    <a
-                      href="https://sheets.new"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="btn btn-outline btn-sm"
-                      style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
-                    >
-                      <i className="fa-solid fa-arrow-up-right-from-square"></i> Open Google Sheets (New)
-                    </a>
-                  </div>
-                </div>
-
-                <div style={{
-                  background: 'var(--paper)',
-                  border: '1px solid var(--line)',
-                  borderRadius: 8,
-                  padding: 14,
-                  marginBottom: 16,
-                  fontSize: '0.85rem',
-                }}>
-                  <strong style={{ color: 'var(--navy)', display: 'block', marginBottom: 4 }}>
-                    <i className="fa-solid fa-circle-info" style={{ color: 'var(--gold)', marginRight: 6 }}></i>
-                    Automated Real-Time Cloud Sync
-                  </strong>
-                  <p className="muted text-sm" style={{ margin: 0, lineHeight: 1.4 }}>
-                    Automated background sync uses a Google Cloud service account. Set <code>GOOGLE_SERVICE_ACCOUNT_EMAIL</code> and <code>GOOGLE_SHEET_ID</code> in <code>.env.local</code> to stream submissions live.
-                  </p>
-                </div>
-
-                <div style={{ textAlign: 'right' }}>
-                  <button className="btn btn-outline btn-sm" onClick={() => setShowSheetsModal(false)}>
-                    Close
-                  </button>
-                </div>
-              </div>
-            </div>
           )}
         </div>
       </div>

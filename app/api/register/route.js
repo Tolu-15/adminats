@@ -1,13 +1,42 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../lib/supabaseAdmin';
+import { getClientIp, verifyTurnstileToken } from '../../../lib/turnstile';
+import { validateStudentData, sanitizeDate } from '../../../lib/validators';
+
+async function generateStudentUniqueId(batchId) {
+  const attempts = [
+    { name: 'generate_student_id', args: { p_batch_id: batchId } },
+    { name: 'generate_student_id', args: { batch_id: batchId } },
+    { name: 'generate_student_id', args: {} },
+    { name: 'generate_student_unique_id', args: { p_batch_id: batchId } },
+  ];
+
+  for (const attempt of attempts) {
+    const { data, error } = await supabaseAdmin.rpc(attempt.name, attempt.args);
+    if (!error && data) return data;
+  }
+
+  throw new Error('Student ID generator is not configured in the database. Run supabase/student_id_sequence.sql before accepting registrations.');
+}
 
 export async function POST(request) {
   try {
     const body = await request.json();
     const { batch_id, surname, first_name, email, phone, gender } = body;
 
-    if (!batch_id || !surname || !first_name || !email || !phone || !gender || !body.date_of_birth) {
-      return NextResponse.json({ error: 'Missing required fields.' }, { status: 400 });
+    const turnstile = await verifyTurnstileToken(body.turnstileToken, getClientIp(request));
+    if (!turnstile.success) {
+      return NextResponse.json({ error: turnstile.error }, { status: 403 });
+    }
+
+    // Input validation: email format, phone format, and field length limits
+    const validation = validateStudentData(body);
+    if (!validation.valid) {
+      return NextResponse.json({ error: validation.errors[0], errors: validation.errors }, { status: 400 });
+    }
+
+    if (!body.date_of_birth) {
+      return NextResponse.json({ error: 'Date of birth is required.' }, { status: 400 });
     }
 
     // Age validation — minimum 16 years based on date_of_birth
@@ -39,30 +68,7 @@ export async function POST(request) {
       return NextResponse.json({ error: 'Invalid or inactive batch.' }, { status: 400 });
     }
 
-    // Generate student ID format: ATS-[BATCH_CODE]-NNNN  e.g. ATS-056-0001
-    const { data: existingStudents } = await supabaseAdmin
-      .from('students')
-      .select('student_unique_id')
-      .eq('batch_id', batch_id);
-
-    let maxSeq = 0;
-    if (existingStudents && existingStudents.length > 0) {
-      for (const s of existingStudents) {
-        if (s.student_unique_id) {
-          const parts = s.student_unique_id.split('-');
-          const lastNum = parseInt(parts[parts.length - 1], 10);
-          if (!isNaN(lastNum) && lastNum > maxSeq) {
-            maxSeq = lastNum;
-          }
-        }
-      }
-    }
-
-    const nextSeq = maxSeq + 1;
-    const seqStr = String(nextSeq).padStart(4, '0');
-    const numMatch = (batch.batch_name || '').match(/\d+/);
-    const batchTag = numMatch ? numMatch[0] : (batch.batch_name || 'ATS').replace(/[^a-zA-Z0-9]/g, '').slice(0, 6).toUpperCase();
-    const student_unique_id = `ATS-${batchTag}-${seqStr}`;
+    const student_unique_id = await generateStudentUniqueId(batch_id);
 
     // 1. Core student record
     const studentRecord = {
@@ -73,40 +79,26 @@ export async function POST(request) {
       middle_name: body.middle_name ? body.middle_name.toUpperCase().trim() : null,
       email: body.email,
       phone: body.phone,
-      date_of_birth: body.date_of_birth || null,
+      date_of_birth: sanitizeDate(body.date_of_birth),
       gender: body.gender,
       home_address: body.home_address || null,
       local_government: body.local_government || null,
       state_of_origin: body.state_of_origin || null,
       nationality: body.nationality || null,
       education: body.education || null,
-      church_join_date: body.church_join_date || null,
+      church_join_date: sanitizeDate(body.church_join_date),
       challenges: body.challenges || null,
       photo_url: body.photo_url || null,
     };
 
-    const { data: student, error: insertError } = await supabaseAdmin
-      .from('students')
-      .insert(studentRecord)
-      .select()
-      .single();
+    const nextOfKinPayload = (body.next_of_kin || body.next_of_kin_phone || body.next_of_kin_address || body.next_of_kin_relationship) ? {
+      name: body.next_of_kin || null,
+      relationship: body.next_of_kin_relationship || null,
+      phone: body.next_of_kin_phone || null,
+      address: body.next_of_kin_address || null,
+    } : null;
 
-    if (insertError) throw insertError;
-
-    // 2. Next of kin record
-    if (body.next_of_kin || body.next_of_kin_phone || body.next_of_kin_address) {
-      await supabaseAdmin.from('student_next_of_kin').insert({
-        student_id: student.id,
-        name: body.next_of_kin || null,
-        relationship: body.next_of_kin_relationship || null,
-        phone: body.next_of_kin_phone || null,
-        address: body.next_of_kin_address || null,
-      });
-    }
-
-    // 3. Spiritual profile record
-    await supabaseAdmin.from('student_spiritual_profile').insert({
-      student_id: student.id,
+    const spiritualPayload = {
       born_again: body.born_again === 'Yes' || body.born_again === true,
       born_again_details: body.born_again_details || null,
       baptized_water: body.baptized_water === 'Yes' || body.baptized_water === true,
@@ -114,27 +106,77 @@ export async function POST(request) {
       baptized_holy_spirit: body.baptized_holy_spirit === 'Yes' || body.baptized_holy_spirit === true,
       baptized_holy_spirit_details: body.baptized_holy_spirit_details || null,
       is_first_timer: body.is_first_timer === 'Yes' || body.is_first_timer === true,
+    };
+
+    // Attempt atomic write via PostgreSQL RPC transaction
+    const { data: rpcStudent, error: rpcError } = await supabaseAdmin.rpc('create_student_full', {
+      p_student: studentRecord,
+      p_next_of_kin: nextOfKinPayload,
+      p_spiritual: spiritualPayload,
+      p_batch_id: batch_id,
     });
 
-    // 4. Registration record (stage: membership)
-    const { data: reg, error: regErr } = await supabaseAdmin
-      .from('registrations')
-      .insert({
+    if (!rpcError && rpcStudent) {
+      return NextResponse.json({ student: rpcStudent });
+    }
+
+    // If error is anything other than missing function (PGRST202), rethrow
+    if (rpcError && rpcError.code !== 'PGRST202' && !rpcError.message?.toLowerCase().includes('could not find function')) {
+      throw rpcError;
+    }
+
+    // Fallback: If RPC is not yet created in the database, execute writes with compensating rollback
+    let createdStudent = null;
+    try {
+      const { data: student, error: insertError } = await supabaseAdmin
+        .from('students')
+        .insert(studentRecord)
+        .select()
+        .single();
+
+      if (insertError) throw insertError;
+      createdStudent = student;
+
+      if (nextOfKinPayload) {
+        await supabaseAdmin.from('student_next_of_kin').insert({
+          student_id: student.id,
+          ...nextOfKinPayload,
+        });
+      }
+
+      await supabaseAdmin.from('student_spiritual_profile').insert({
         student_id: student.id,
-        batch_id,
-        stage: 'membership',
-      })
-      .select()
-      .single();
+        ...spiritualPayload,
+      });
 
-    if (regErr) throw regErr;
+      const { data: reg, error: regErr } = await supabaseAdmin
+        .from('registrations')
+        .insert({
+          student_id: student.id,
+          batch_id,
+          stage: 'membership',
+        })
+        .select()
+        .single();
 
-    // 5. Blank membership grades record
-    await supabaseAdmin.from('membership_grades').insert({
-      registration_id: reg.id,
-    });
+      if (regErr) throw regErr;
 
-    return NextResponse.json({ student });
+      await supabaseAdmin.from('membership_grades').insert({
+        registration_id: reg.id,
+      });
+
+      return NextResponse.json({ student: createdStudent });
+    } catch (fallbackErr) {
+      // Compensating rollback: delete partially created student to prevent orphaned rows
+      if (createdStudent?.id) {
+        try {
+          await supabaseAdmin.from('students').delete().eq('id', createdStudent.id);
+        } catch (cleanupErr) {
+          console.error('[registration-cleanup-error]', cleanupErr);
+        }
+      }
+      throw fallbackErr;
+    }
   } catch (err) {
     return NextResponse.json({ error: err.message || 'Registration failed.' }, { status: 500 });
   }

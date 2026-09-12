@@ -24,11 +24,12 @@ export default function BatchDetail({ params: paramsPromise }) {
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('ALL');
   const [showQrModal, setShowQrModal] = useState(false);
+  const [showSheetsModal, setShowSheetsModal] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
   // Import state
   const [importing, setImporting] = useState(false);
-  const [importProgress, setImportProgress] = useState({ percent: 0, stage: '', detail: '' });
+  const [importProgress, setImportProgress] = useState({ percent: 0, stage: '', detail: '', rows: 0, sheets: [] });
   const [importResult, setImportResult] = useState(null);
   const fileInputRef = useRef(null);
 
@@ -62,8 +63,9 @@ export default function BatchDetail({ params: paramsPromise }) {
       if (!data.session) {
         router.push('/admin/login');
       } else {
-        const isViewer = data.session.user?.email === 'viewer@ats.com';
-        setSession({ ...data.session, isViewer });
+        const userRole = data.session.user?.user_metadata?.role || 'viewer';
+        const isViewer = userRole === 'viewer' || data.session.user?.email === 'viewer@ats.com';
+        setSession({ ...data.session, role: userRole, isViewer });
       }
     });
   }, [router]);
@@ -115,8 +117,9 @@ export default function BatchDetail({ params: paramsPromise }) {
     const a = document.createElement('a');
     a.href = url;
     const disp = res.headers.get('Content-Disposition') || '';
-    const match = disp.match(/filename="(.+?)"/);
-    a.download = match ? match[1] : `Batch_${batch?.batch_code}_Grades.xlsx`;
+    const rfcMatch = disp.match(/filename\*=UTF-8''([^;]+)/i);
+    const stdMatch = disp.match(/filename="([^"]+)"/i);
+    a.download = rfcMatch ? decodeURIComponent(rfcMatch[1]) : (stdMatch ? stdMatch[1] : `Batch_${batch?.batch_code}_Grades.xlsx`);
     a.click();
     URL.revokeObjectURL(url);
   }
@@ -125,31 +128,41 @@ export default function BatchDetail({ params: paramsPromise }) {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    if (file.size > 10 * 1024 * 1024) {
+      alert('File exceeds the 10 MB maximum upload limit. Please select a smaller file.');
+      e.target.value = '';
+      return;
+    }
+
+    const lowerName = (file.name || '').toLowerCase();
+    if (!lowerName.endsWith('.xlsx')) {
+      alert('Please save the spreadsheet as an Excel (.xlsx) file before uploading. Legacy .xls files are not supported.');
+      e.target.value = '';
+      return;
+    }
+
     setImporting(true);
     setImportResult(null);
     setImportProgress({
       percent: 5,
       stage: 'Step 1/4: Reading Excel migration template file…',
-      detail: `File selected: ${file.name} (${(file.size / 1024).toFixed(1)} KB)`
+      detail: `Selected ${file.name} (${(file.size / 1024).toFixed(1)} KB).`,
+      rows: 0,
+      sheets: [],
     });
 
     try {
-      // Step 1: Read workbook header structure locally
-      const arrayBuffer = await file.arrayBuffer();
-      let sheetNames = [];
-      try {
-        const ExcelJS = (await import('exceljs')).default;
-        const workbook = new ExcelJS.Workbook();
-        await workbook.xlsx.load(arrayBuffer);
-        sheetNames = workbook.worksheets.map(w => w.name);
-      } catch (err) {
-        sheetNames = ['Worksheet'];
-      }
+      // The server reads the workbook once. Parsing it in the browser too
+      // doubled the initial wait before the import could start.
+      const sheetNames = [];
+      const estimatedRows = 0;
 
       setImportProgress({
         percent: 20,
         stage: 'Step 2/4: Analyzing worksheets & student biodata…',
-        detail: `Found ${sheetNames.length} sheet(s) [${sheetNames.slice(0, 3).join(', ')}] in ${file.name}`,
+        detail: 'Validating the workbook, checking duplicates, and saving records in batches.',
+        rows: estimatedRows,
+        sheets: sheetNames,
       });
 
       // Step 2: Live progression stages
@@ -174,10 +187,28 @@ export default function BatchDetail({ params: paramsPromise }) {
             detailMsg = `Completing database transactions…`;
           }
 
+          if (nextPercent <= 45) {
+            stageMsg = 'Saving student biodata';
+            detailMsg = estimatedRows
+              ? `Processing up to ${estimatedRows} row(s). Please keep this page open.`
+              : 'Processing student profiles. Please keep this page open.';
+          } else if (nextPercent <= 70) {
+            stageMsg = 'Saving Membership and MIT grades';
+            detailMsg = 'Updating attendance, test scores, class records, and registrations.';
+          } else if (nextPercent <= 88) {
+            stageMsg = 'Saving Proclaimers grades';
+            detailMsg = 'Linking Proclaimers registrations and grade records.';
+          } else {
+            stageMsg = 'Finalizing import';
+            detailMsg = 'Refreshing batch records and checking for reported issues.';
+          }
+
           return {
             percent: Math.min(nextPercent, 92),
             stage: stageMsg,
             detail: detailMsg,
+            rows: prev.rows,
+            sheets: prev.sheets,
           };
         });
       }, 350);
@@ -193,10 +224,17 @@ export default function BatchDetail({ params: paramsPromise }) {
 
       clearInterval(interval);
 
-      const json = await res.json();
+      const responseText = await res.text();
+      let json = {};
+      try {
+        json = responseText ? JSON.parse(responseText) : {};
+      } catch {
+        json = {};
+      }
       if (!res.ok) {
+        json.error = json.error || `Import failed (HTTP ${res.status}). Please try again; if it continues, contact support with the upload time.`;
         setImportProgress({ percent: 100, stage: 'Import Failed ❌', detail: json.error || 'Import failed.' });
-        setImportResult({ error: json.error || 'Import failed.' });
+        setImportResult({ error: json.error || 'Import failed.', errors: json.errors || [] });
       } else {
         const studentCount = json.studentsProcessed || 0;
         const gradeCount = json.gradesUpdated || 0;
@@ -211,6 +249,8 @@ export default function BatchDetail({ params: paramsPromise }) {
           percent: 100,
           stage: 'Import Complete! 🎉',
           detail: detailText,
+          rows: estimatedRows,
+          sheets: sheetNames,
         });
         setImportResult(json);
       }
@@ -349,6 +389,9 @@ export default function BatchDetail({ params: paramsPromise }) {
               <button className="btn btn-outline btn-sm" onClick={downloadExcel}>
                 <i className="fa-solid fa-file-export"></i> Export Grade Sheet
               </button>
+              <button className="btn btn-outline btn-sm" onClick={() => setShowSheetsModal(true)} title="Google Sheets Sync & Export">
+                <i className="fa-solid fa-table"></i> Google Sheets
+              </button>
               {!session?.isViewer && (
                 <button
                   className="btn btn-sm"
@@ -375,22 +418,20 @@ export default function BatchDetail({ params: paramsPromise }) {
           {/* Uploading / Progressive Progress Bar Display */}
           {importing && (
             <div style={{
-              background: 'linear-gradient(135deg, rgba(15, 23, 42, 0.96), rgba(30, 41, 59, 0.96))',
-              border: '1px solid rgba(212, 175, 55, 0.45)',
-              borderRadius: 16,
-              padding: '20px 24px',
+              background: '#fff',
+              border: '1px solid var(--border)',
+              borderRadius: 10,
+              padding: '18px 20px',
               marginBottom: 24,
-              boxShadow: '0 12px 30px -5px rgba(0, 0, 0, 0.25), 0 0 20px rgba(212, 175, 55, 0.15)',
-              color: '#fff',
+              boxShadow: '0 10px 22px rgba(15, 23, 42, 0.08)',
             }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
                   <div style={{
-                    width: 42, height: 42, borderRadius: 12,
+                    width: 40, height: 40, borderRadius: 8,
                     background: 'rgba(212,175,55,0.15)', border: '1px solid rgba(212,175,55,0.35)',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                     color: 'var(--gold, #d4af37)', fontSize: '1.2rem',
-                    boxShadow: '0 0 10px rgba(212, 175, 55, 0.2)',
                   }}>
                     {importProgress.percent === 100 ? (
                       <i className="fa-solid fa-check" style={{ color: '#10b981' }}></i>
@@ -399,26 +440,35 @@ export default function BatchDetail({ params: paramsPromise }) {
                     )}
                   </div>
                   <div>
-                    <div style={{ fontWeight: 700, fontSize: '1rem', color: '#f8fafc', letterSpacing: '-0.01em' }}>
+                    <div style={{ fontWeight: 700, fontSize: '0.98rem', color: 'var(--navy)' }}>
                       {importProgress.stage || 'Uploading Batch Data…'}
                     </div>
-                    <div style={{ fontSize: '0.82rem', color: '#94a3b8', marginTop: 2 }}>
+                    <div style={{ fontSize: '0.82rem', color: 'var(--muted)', marginTop: 2 }}>
                       {importProgress.detail}
                     </div>
+                    {importProgress.sheets?.length > 0 && (
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
+                        {importProgress.sheets.slice(0, 4).map((sheetName) => (
+                          <span key={sheetName} className="badge" style={{ fontSize: '0.7rem' }}>{sheetName}</span>
+                        ))}
+                        {importProgress.sheets.length > 4 && (
+                          <span className="badge" style={{ fontSize: '0.7rem' }}>+{importProgress.sheets.length - 4} more</span>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
                 <div style={{
-                  fontSize: '1.35rem', fontWeight: 800, color: 'var(--gold, #d4af37)',
-                  fontFamily: 'monospace', background: 'rgba(212,175,55,0.12)',
-                  padding: '4px 14px', borderRadius: 8, border: '1px solid rgba(212,175,55,0.3)'
+                  fontSize: '1rem', fontWeight: 800, color: 'var(--navy)',
+                  fontFamily: 'monospace', background: 'var(--paper)',
+                  padding: '5px 12px', borderRadius: 8, border: '1px solid var(--border)'
                 }}>
                   {importProgress.percent}%
                 </div>
               </div>
 
-              {/* Glowing Progress Track */}
               <div style={{
-                width: '100%', height: 10, background: 'rgba(255, 255, 255, 0.1)',
+                width: '100%', height: 10, background: 'var(--paper)',
                 borderRadius: 999, overflow: 'hidden', position: 'relative'
               }}>
                 <div style={{
@@ -427,7 +477,6 @@ export default function BatchDetail({ params: paramsPromise }) {
                   background: 'linear-gradient(90deg, #d4af37 0%, #f59e0b 50%, #eab308 100%)',
                   borderRadius: 999,
                   transition: 'width 0.35s ease-in-out',
-                  boxShadow: '0 0 14px rgba(212, 175, 55, 0.7)',
                 }} />
               </div>
             </div>
@@ -449,9 +498,22 @@ export default function BatchDetail({ params: paramsPromise }) {
                     : (importResult.message || `Successfully imported ${importResult.studentsProcessed || 0} student profile(s) and ${importResult.gradesUpdated || 0} grade record(s).`)}
                 </strong>
                 {importResult.errors?.length > 0 && (
-                  <ul style={{ margin: '8px 0 0', paddingLeft: 18, fontSize: '0.82rem' }}>
+                  <ul style={{ margin: '10px 0 0', paddingLeft: 18, fontSize: '0.82rem' }}>
                     {importResult.errors.map((e, i) => <li key={i}>{e}</li>)}
                   </ul>
+                )}
+                {importResult.warnings?.length > 0 && (
+                  <details style={{ marginTop: 10 }}>
+                    <summary style={{ cursor: 'pointer', fontWeight: 700 }}>Review {importResult.warnings.length} warning(s)</summary>
+                    <ul style={{ margin: '8px 0 0', paddingLeft: 18, fontSize: '0.82rem' }}>
+                      {importResult.warnings.slice(0, 20).map((warning, i) => <li key={i}>{warning}</li>)}
+                    </ul>
+                  </details>
+                )}
+                {importResult.dataEntryGaps?.length > 0 && (
+                  <div style={{ marginTop: 10, fontSize: '0.82rem' }}>
+                    <strong>Data gaps found:</strong> {importResult.dataEntryGaps.join(' ')}
+                  </div>
                 )}
               </div>
 
@@ -606,6 +668,99 @@ export default function BatchDetail({ params: paramsPromise }) {
               batch={batch}
               onClose={() => setShowQrModal(false)}
             />
+          )}
+
+          {/* Google Sheets Modal */}
+          {showSheetsModal && (
+            <div style={{
+              position: 'fixed',
+              inset: 0,
+              background: 'rgba(0,0,0,0.5)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 999,
+              padding: 16,
+            }}>
+              <div className="card" style={{ maxWidth: 520, width: '100%', padding: 24 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <div style={{
+                      width: 38,
+                      height: 38,
+                      borderRadius: 8,
+                      background: 'rgba(22,163,74,0.12)',
+                      color: '#16a34a',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: '1.2rem',
+                    }}>
+                      <i className="fa-solid fa-table"></i>
+                    </div>
+                    <div>
+                      <h2 style={{ fontSize: '1.2rem', color: 'var(--navy)', margin: 0 }}>Google Sheets Integration</h2>
+                      <span className="muted text-sm">Batch: {batch?.batch_name}</span>
+                    </div>
+                  </div>
+                  <button
+                    className="btn btn-outline btn-sm"
+                    onClick={() => setShowSheetsModal(false)}
+                    style={{ borderRadius: '50%', width: 28, height: 28, padding: 0 }}
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                <div style={{ marginBottom: 18 }}>
+                  <h3 style={{ fontSize: '0.92rem', color: 'var(--navy)', marginBottom: 6 }}>1. Open in Google Sheets</h3>
+                  <p className="muted text-sm" style={{ lineHeight: 1.5, marginBottom: 10 }}>
+                    You can export this batch’s multi-sheet grade roster as an Excel file and upload it straight to Google Sheets:
+                  </p>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    <button
+                      className="btn btn-primary btn-sm"
+                      onClick={() => { downloadExcel(); }}
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                    >
+                      <i className="fa-solid fa-download"></i> Download & Open
+                    </button>
+                    <a
+                      href="https://sheets.new"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="btn btn-outline btn-sm"
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                    >
+                      <i className="fa-solid fa-arrow-up-right-from-square"></i> Open Google Sheets (New)
+                    </a>
+                  </div>
+                </div>
+
+                <div style={{
+                  background: 'var(--paper)',
+                  border: '1px solid var(--line)',
+                  borderRadius: 8,
+                  padding: 14,
+                  marginBottom: 16,
+                  fontSize: '0.85rem',
+                }}>
+                  <strong style={{ color: 'var(--navy)', display: 'block', marginBottom: 4 }}>
+                    <i className="fa-solid fa-circle-info" style={{ color: 'var(--gold)', marginRight: 6 }}></i>
+                    Automated Real-Time Cloud Sync
+                  </strong>
+                  <p className="muted text-sm" style={{ margin: 0, lineHeight: 1.4 }}>
+                    Automated background sync uses a Google Cloud service account. Set <code>GOOGLE_SERVICE_ACCOUNT_EMAIL</code> and <code>GOOGLE_SHEET_ID</code> in <code>.env.local</code> to stream submissions live.
+                  </p>
+                </div>
+
+                <div style={{ textAlign: 'right' }}>
+                  <button className="btn btn-outline btn-sm" onClick={() => setShowSheetsModal(false)}>
+                    Close
+                  </button>
+                </div>
+              </div>
+            </div>
           )}
         </div>
       </div>

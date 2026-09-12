@@ -91,6 +91,24 @@ export default function Sidebar({ onNavigate }) {
           />
         </nav>
 
+        <div className="sidebar-section-label">System & Security</div>
+        <nav className="sidebar-nav">
+          <NavItem
+            href="/admin/audit"
+            icon={<AuditIcon />}
+            label="Audit Logs"
+            active={pathname === '/admin/audit'}
+            onClick={handleNavClick}
+          />
+          <NavItem
+            href="/admin/trash"
+            icon={<TrashIcon />}
+            label="Trash / Recovery"
+            active={pathname === '/admin/trash'}
+            onClick={handleNavClick}
+          />
+        </nav>
+
         <div style={{ flex: 1 }} />
 
         <div className="sidebar-signout">
@@ -125,6 +143,20 @@ function BatchIcon() {
   return (
     <svg viewBox="0 0 20 20" fill="currentColor" width="18" height="18">
       <path d="M3 4a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v2a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V4ZM3 10a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v2a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-2ZM4 15a1 1 0 1 0 0 2h8a1 1 0 1 0 0-2H4Z" />
+    </svg>
+  );
+}
+function AuditIcon() {
+  return (
+    <svg viewBox="0 0 20 20" fill="currentColor" width="18" height="18">
+      <path fillRule="evenodd" d="M10 2a8 8 0 1 0 0 16 8 8 0 0 0 0-16Zm.75 4a.75.75 0 0 0-1.5 0v4.25c0 .2.08.39.22.53l3 3a.75.75 0 1 0 1.06-1.06l-2.78-2.78V6Z" clipRule="evenodd" />
+    </svg>
+  );
+}
+function TrashIcon() {
+  return (
+    <svg viewBox="0 0 20 20" fill="currentColor" width="18" height="18">
+      <path fillRule="evenodd" d="M8.75 1A2.75 2.75 0 0 0 6 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 1 0 .23 1.482l.149-.022.841 10.518A2.75 2.75 0 0 0 7.596 19h4.807a2.75 2.75 0 0 0 2.742-2.53l.841-10.52.149.023a.75.75 0 0 0 .23-1.482A41.03 41.03 0 0 0 14 4.193V3.75A2.75 2.75 0 0 0 11.25 1h-2.5ZM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C8.327 4.025 9.16 4 10 4ZM8.58 7.72a.75.75 0 0 0-1.5.06l.3 7.5a.75.75 0 1 0 1.5-.06l-.3-7.5Zm4.34.06a.75.75 0 1 0-1.5-.06l-.3 7.5a.75.75 0 1 0 1.5.06l.3-7.5Z" clipRule="evenodd" />
     </svg>
   );
 }

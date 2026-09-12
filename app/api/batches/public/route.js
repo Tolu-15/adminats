@@ -13,6 +13,11 @@ export async function GET(request) {
     return NextResponse.json({ error: 'Token is required' }, { status: 400 });
   }
 
+  // Reject any characters that could corrupt PostgREST queries (only allow alphanumeric, hyphens, underscores)
+  if (!/^[a-zA-Z0-9\-_]+$/.test(token)) {
+    return NextResponse.json({ error: 'Registration link invalid or batch not found.' }, { status: 404 });
+  }
+
   // 1. Primary lookup by reg_token or batch_code (case-insensitive)
   let { data: batch, error } = await supabaseAdmin
     .from('batches')

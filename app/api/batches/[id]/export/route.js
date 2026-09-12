@@ -17,7 +17,7 @@ export async function GET(request, { params }) {
   if (batchErr || !batch) return NextResponse.json({ error: 'Batch not found' }, { status: 404 });
 
   const workbook = new ExcelJS.Workbook();
-  const safeCode = (batch.batch_name || 'Batch').replace(/\s+/g, '_');
+  const safeCode = (batch.batch_name || 'Batch').replace(/[^a-zA-Z0-9_\-]/g, '_');
 
   // Fetch all registrations in this batch
   const { data: registrations } = await supabaseAdmin
@@ -30,6 +30,22 @@ export async function GET(request, { params }) {
     .order('created_at', { ascending: true });
 
   const regsList = registrations || [];
+
+  async function fetchGradesByRegistration(tableName, registrationIds) {
+    const ids = Array.from(new Set((registrationIds || []).filter(Boolean)));
+    if (ids.length === 0) return new Map();
+
+    const { data } = await supabaseAdmin
+      .from(tableName)
+      .select('*')
+      .in('registration_id', ids);
+
+    const gradeMap = new Map();
+    (data || []).forEach((grade) => {
+      if (grade.registration_id) gradeMap.set(grade.registration_id, grade);
+    });
+    return gradeMap;
+  }
 
   // Helper to add a styled header row
   function addHeaderRow(ws, columns, titleText) {
@@ -53,16 +69,8 @@ export async function GET(request, { params }) {
   // ── 1. MEMBERSHIP STUDENTS SHEET ──────────────────────────────────────────
   const memRegs = regsList.filter((r) => r.stage === 'membership');
   if (memRegs.length > 0) {
-    const memGradesList = await Promise.all(
-      memRegs.map(async (r) => {
-        const { data: g } = await supabaseAdmin
-          .from('membership_grades')
-          .select('*')
-          .eq('registration_id', r.id)
-          .maybeSingle();
-        return { student: r.student, grade: g || {} };
-      })
-    );
+    const memGradeMap = await fetchGradesByRegistration('membership_grades', memRegs.map((r) => r.id));
+    const memGradesList = memRegs.map((r) => ({ student: r.student, grade: memGradeMap.get(r.id) || {} }));
 
     const ws = workbook.addWorksheet('Membership');
     const columns = [
@@ -99,16 +107,8 @@ export async function GET(request, { params }) {
   // ── 2. MIT STUDENTS SHEET ──────────────────────────────────────────────────
   const mitRegs = regsList.filter((r) => r.stage === 'mit');
   if (mitRegs.length > 0) {
-    const mitGradesList = await Promise.all(
-      mitRegs.map(async (reg) => {
-        const { data: g } = await supabaseAdmin
-          .from('mit_grades')
-          .select('*')
-          .eq('registration_id', reg.id)
-          .maybeSingle();
-        return { reg, grade: g || {} };
-      })
-    );
+    const mitGradeMap = await fetchGradesByRegistration('mit_grades', mitRegs.map((r) => r.id));
+    const mitGradesList = mitRegs.map((reg) => ({ reg, grade: mitGradeMap.get(reg.id) || {} }));
 
     const ws = workbook.addWorksheet('MIT');
     const columns = [
@@ -149,16 +149,8 @@ export async function GET(request, { params }) {
   // ── 3. PROCLAIMERS STUDENTS SHEET ──────────────────────────────────────────
   const procRegs = regsList.filter((r) => r.stage === 'proclaimers');
   if (procRegs.length > 0) {
-    const procGradesList = await Promise.all(
-      procRegs.map(async (reg) => {
-        const { data: g } = await supabaseAdmin
-          .from('proclaimers_grades')
-          .select('*')
-          .eq('registration_id', reg.id)
-          .maybeSingle();
-        return { reg, grade: g || {} };
-      })
-    );
+    const procGradeMap = await fetchGradesByRegistration('proclaimers_grades', procRegs.map((r) => r.id));
+    const procGradesList = procRegs.map((reg) => ({ reg, grade: procGradeMap.get(reg.id) || {} }));
 
     const ws = workbook.addWorksheet('Proclaimers');
     const columns = [
@@ -202,7 +194,7 @@ export async function GET(request, { params }) {
   return new Response(buffer, {
     headers: {
       'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      'Content-Disposition': `attachment; filename="${fileName}"`,
+      'Content-Disposition': `attachment; filename="${fileName}"; filename*=UTF-8''${encodeURIComponent(fileName)}`,
     },
   });
 }

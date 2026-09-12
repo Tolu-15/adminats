@@ -69,6 +69,35 @@ export default function StudentProfile() {
   const [savingProfile, setSavingProfile] = useState(false);
   const [profileMsg, setProfileMsg] = useState(null);
 
+  // Student soft-delete state
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deletingStudent, setDeletingStudent] = useState(false);
+  const [deleteError, setDeleteError] = useState(null);
+
+  async function handleDeleteStudent() {
+    setDeletingStudent(true);
+    setDeleteError(null);
+    try {
+      const { data: { session: sess } } = await supabase.auth.getSession();
+      const token = sess?.access_token || session?.access_token;
+      const res = await fetch(`/api/students/${id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to delete student');
+
+      if (student?.batch?.id) {
+        router.push(`/admin/batch/${student.batch.id}`);
+      } else {
+        router.push('/admin');
+      }
+    } catch (err) {
+      setDeleteError(err.message);
+      setDeletingStudent(false);
+    }
+  }
+
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
@@ -432,22 +461,41 @@ export default function StudentProfile() {
                 </div>
               </div>
 
-              {/* Edit Full Profile button (Admin Only) */}
+              {/* Profile action buttons (Admin Only) */}
               {!session?.isViewer && (
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, gap: 8, flexWrap: 'wrap' }}>
                   {profileMsg && (
                     <span style={{ fontSize: '0.78rem', color: profileMsg.type === 'success' ? '#16a34a' : 'var(--danger)', display: 'flex', alignItems: 'center', gap: 4 }}>
                       <i className={`fa-solid ${profileMsg.type === 'success' ? 'fa-circle-check' : 'fa-circle-exclamation'}`} />
                       {profileMsg.text}
                     </span>
                   )}
-                  <button
-                    className="btn btn-outline btn-sm"
-                    onClick={openFullEdit}
-                    style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6 }}
-                  >
-                    <i className="fa-solid fa-pen-to-square" /> Edit Full Profile
-                  </button>
+                  <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+                    <button
+                      className="btn btn-outline btn-sm"
+                      onClick={openFullEdit}
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                    >
+                      <i className="fa-solid fa-pen-to-square" /> Edit Full Profile
+                    </button>
+                    <button
+                      className="btn btn-sm"
+                      onClick={() => setShowDeleteModal(true)}
+                      style={{
+                        background: 'transparent',
+                        borderColor: '#dc2626',
+                        color: '#dc2626',
+                        border: '1px solid #dc2626',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        borderRadius: 'var(--radius)',
+                      }}
+                      title="Move student to Trash"
+                    >
+                      <i className="fa-solid fa-trash-can" /> Delete Student
+                    </button>
+                  </div>
                 </div>
               )}
 
@@ -859,7 +907,12 @@ export default function StudentProfile() {
               </div>
               <div className="field">
                 <label>When did they join Citadel?</label>
-                <input type="text" placeholder="e.g. January 2020" value={fullEditForm.church_join_date || ''} onChange={(e) => setFullEditForm((p) => ({ ...p, church_join_date: e.target.value }))} />
+                <input
+                  type="date"
+                  value={fullEditForm.church_join_date || ''}
+                  onChange={(e) => setFullEditForm((p) => ({ ...p, church_join_date: e.target.value }))}
+                  max={new Date().toISOString().split('T')[0]}
+                />
               </div>
               <div className="field">
                 <label>Challenges to participation</label>
@@ -934,6 +987,91 @@ export default function StudentProfile() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteModal && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'rgba(0,0,0,0.5)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 999,
+          padding: 16,
+        }}>
+          <div className="card" style={{ maxWidth: 460, width: '100%', padding: 24 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
+              <div style={{
+                width: 42,
+                height: 42,
+                borderRadius: '50%',
+                background: '#fee2e2',
+                color: '#dc2626',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: '1.2rem',
+                flexShrink: 0,
+              }}>
+                <i className="fa-solid fa-triangle-exclamation"></i>
+              </div>
+              <h2 style={{ fontSize: '1.2rem', color: 'var(--navy)', margin: 0 }}>Delete Student Record?</h2>
+            </div>
+            <p className="muted text-sm" style={{ marginBottom: 16, lineHeight: 1.5 }}>
+              Are you sure you want to delete <strong>{fullName}</strong> ({student.student_unique_id})?
+              The student will be moved to the <strong>Trash</strong> and can be restored at any time.
+            </p>
+
+            {deleteError && (
+              <div style={{
+                background: '#FDE8E8',
+                color: '#9B1C1C',
+                padding: '8px 12px',
+                borderRadius: 6,
+                fontSize: '0.85rem',
+                marginBottom: 16,
+              }}>
+                {deleteError}
+              </div>
+            )}
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+              <button
+                className="btn btn-outline btn-sm"
+                onClick={() => { setShowDeleteModal(false); setDeleteError(null); }}
+                disabled={deletingStudent}
+              >
+                Cancel
+              </button>
+              <button
+                className="btn btn-sm"
+                onClick={handleDeleteStudent}
+                disabled={deletingStudent}
+                style={{
+                  background: '#dc2626',
+                  color: '#fff',
+                  border: 'none',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  padding: '6px 14px',
+                }}
+              >
+                {deletingStudent ? (
+                  <>
+                    <i className="fa-solid fa-spinner fa-spin"></i> Deleting…
+                  </>
+                ) : (
+                  <>
+                    <i className="fa-solid fa-trash-can"></i> Move to Trash
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         </div>
       )}

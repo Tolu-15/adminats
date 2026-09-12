@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../../../lib/supabaseAdmin';
 import { requireAdmin } from '../../../../../lib/requireAdmin';
+import { logAdminAction } from '../../../../../lib/auditLog';
 
 // Helper to get or create membership registration
 async function getOrCreateMembershipReg(studentId) {
@@ -63,26 +64,47 @@ export async function PATCH(request, { params }) {
   const reg = await getOrCreateMembershipReg(id);
   if (!reg) return NextResponse.json({ error: 'Membership registration not found.' }, { status: 404 });
 
+  // Pre-fetch existing grade record to calculate exact diff
+  const { data: existingGrade } = await supabaseAdmin
+    .from('membership_grades')
+    .select('*')
+    .eq('registration_id', reg.id)
+    .maybeSingle();
+
+  const numericFields = ['attendance', 'test', 'assignment', 'assessment', 'presentation', 'exam', 'final_grades'];
+  const gradeFields = [
+    'class', 'trainer', 'attendance', 'test', 'assignment', 'assessment',
+    'presentation', 'exam', 'final_grades', 'water_baptism', 'holy_spirit_baptism',
+    'portal', 'status', 'comments', 'covenant_deed', 'id_card_collected_date',
+  ];
+
   const payload = {
-    registration_id:     reg.id,
-    class:               body.class               || null,
-    trainer:             body.trainer             || null,
-    attendance:          body.attendance   != null ? Number(body.attendance)   : null,
-    test:                body.test         != null ? Number(body.test)         : null,
-    assignment:          body.assignment   != null ? Number(body.assignment)   : null,
-    assessment:          body.assessment   != null ? Number(body.assessment)   : null,
-    presentation:        body.presentation != null ? Number(body.presentation) : null,
-    exam:                body.exam         != null ? Number(body.exam)         : null,
-    final_grades:        body.final_grades != null ? Number(body.final_grades) : null,
-    water_baptism:       body.water_baptism        || null,
-    holy_spirit_baptism: body.holy_spirit_baptism  || null,
-    portal:              body.portal               || null,
-    status:              body.status               || null,
-    comments:            body.comments             || null,
-    covenant_deed:       body.covenant_deed        || null,
-    id_card_collected_date: body.id_card_collected_date || null,
-    updated_at:          new Date().toISOString(),
+    registration_id: reg.id,
+    updated_at: new Date().toISOString(),
   };
+
+  const actuallyModifiedFields = [];
+  const changes = {};
+
+  for (const f of gradeFields) {
+    if (f in body) {
+      let val = body[f] === '' ? null : body[f];
+      if (numericFields.includes(f) && val != null) {
+        val = Number(val);
+        if (isNaN(val)) val = null;
+      }
+      payload[f] = val;
+
+      const oldVal = existingGrade ? existingGrade[f] : null;
+      const normOld = oldVal == null || oldVal === '' ? null : String(oldVal).trim();
+      const normNew = val == null || val === '' ? null : String(val).trim();
+
+      if (normOld !== normNew) {
+        actuallyModifiedFields.push(f);
+        changes[f] = { from: oldVal ?? null, to: val ?? null };
+      }
+    }
+  }
 
   const { data, error } = await supabaseAdmin
     .from('membership_grades')
@@ -91,5 +113,47 @@ export async function PATCH(request, { params }) {
     .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  // Fetch student info to record human-friendly name
+  const { data: st } = await supabaseAdmin
+    .from('students')
+    .select('first_name, surname, student_unique_id')
+    .eq('id', id)
+    .maybeSingle();
+
+  const studentName = st ? [st.first_name, st.surname].filter(Boolean).join(' ') : 'Student';
+
+  let gradeSummary = '';
+  if (actuallyModifiedFields.length === 0) {
+    gradeSummary = `Re-saved membership grades for ${studentName} (no values changed)`;
+  } else if (actuallyModifiedFields.length === 1) {
+    const singleField = actuallyModifiedFields[0];
+    const diff = changes[singleField];
+    const fromStr = diff?.from != null ? `"${diff.from}"` : '(empty)';
+    const toStr = diff?.to != null ? `"${diff.to}"` : '(cleared)';
+    gradeSummary = `Updated ${singleField.replace(/_/g, ' ')} (${fromStr} → ${toStr}) for ${studentName}`;
+  } else {
+    gradeSummary = `Updated membership grades for ${studentName} (modified: ${actuallyModifiedFields.slice(0, 3).map((f) => f.replace(/_/g, ' ')).join(', ')}${actuallyModifiedFields.length > 3 ? ` +${actuallyModifiedFields.length - 3} more` : ''})`;
+  }
+
+  await logAdminAction({
+    action: 'GRADE_UPDATE',
+    entityType: 'grades',
+    entityId: data?.id || reg.id,
+    actor: user,
+    details: {
+      programme: 'membership',
+      entity_name: studentName,
+      student_id: id,
+      student_unique_id: st?.student_unique_id || null,
+      summary: gradeSummary,
+      registration_id: reg.id,
+      actually_modified_fields: actuallyModifiedFields,
+      changes,
+      final_grades: payload.final_grades ?? existingGrade?.final_grades ?? null,
+      status: payload.status ?? existingGrade?.status ?? null,
+    },
+  });
+
   return NextResponse.json({ grades: data });
 }

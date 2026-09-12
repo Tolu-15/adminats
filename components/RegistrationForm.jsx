@@ -1,10 +1,63 @@
 'use client';
 
+import { useEffect, useRef, useState } from 'react';
 import PhotoUploader from './PhotoUploader';
 
 export default function RegistrationForm({
   form, update, onSubmit, submitting, error, onPhotoSelected, onPhotoUploaded, photoUrl,
+  turnstileSiteKey, onTurnstileTokenChange, turnstileResetKey = 0,
 }) {
+  const turnstileRef = useRef(null);
+  const widgetIdRef = useRef(null);
+  const [turnstileLoadError, setTurnstileLoadError] = useState('');
+
+  useEffect(() => {
+    if (!turnstileSiteKey || !turnstileRef.current) return;
+
+    let cancelled = false;
+
+    function renderTurnstile() {
+      if (cancelled || !window.turnstile || !turnstileRef.current) return;
+
+      turnstileRef.current.innerHTML = '';
+      setTurnstileLoadError('');
+      widgetIdRef.current = window.turnstile.render(turnstileRef.current, {
+        sitekey: turnstileSiteKey,
+        callback: (token) => onTurnstileTokenChange?.(token),
+        'expired-callback': () => onTurnstileTokenChange?.(''),
+        'error-callback': () => {
+          onTurnstileTokenChange?.('');
+          setTurnstileLoadError('Security check could not load. Refresh the page or disable blockers for this site.');
+        },
+      });
+    }
+
+    if (window.turnstile) {
+      renderTurnstile();
+    } else {
+      const scriptUrl = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
+      const existingScript = document.querySelector(`script[src="${scriptUrl}"]`);
+      const script = existingScript || document.createElement('script');
+      script.src = scriptUrl;
+      script.async = true;
+      script.defer = true;
+      script.onload = renderTurnstile;
+      script.onerror = () => {
+        onTurnstileTokenChange?.('');
+        setTurnstileLoadError('Security check could not load. Check your connection or disable blockers for this site.');
+      };
+      if (!existingScript) document.head.appendChild(script);
+    }
+
+    return () => {
+      cancelled = true;
+      if (window.turnstile && widgetIdRef.current) {
+        window.turnstile.remove(widgetIdRef.current);
+        widgetIdRef.current = null;
+      }
+    };
+  }, [turnstileSiteKey, turnstileResetKey, onTurnstileTokenChange]);
+
   return (
     <form onSubmit={onSubmit}>
       {error && <div className="error-box">{error}</div>}
@@ -167,12 +220,26 @@ export default function RegistrationForm({
       )}
       <div className="field">
         <label>When did you join/come to the Citadel Global Community Church for the first time?</label>
-        <input type="text" placeholder="State year and month" value={form.church_join_date} onChange={(e) => update('church_join_date', e.target.value)} />
+        <input
+          type="date"
+          value={form.church_join_date || ''}
+          onChange={(e) => update('church_join_date', e.target.value)}
+          max={new Date().toISOString().split('T')[0]}
+        />
       </div>
       <div className="field">
         <label>Is/are there any challenge(s) that might hinder your full participation in the programme?</label>
         <textarea value={form.challenges} onChange={(e) => update('challenges', e.target.value)} />
       </div>
+
+      {turnstileSiteKey && (
+        <div className="field">
+          <div ref={turnstileRef} />
+          {turnstileLoadError && (
+            <div className="error-box" style={{ marginTop: 10 }}>{turnstileLoadError}</div>
+          )}
+        </div>
+      )}
 
       <button type="submit" className="btn btn-primary" disabled={submitting}>
         {submitting ? 'Submitting…' : 'Submit Registration'}

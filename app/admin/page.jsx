@@ -23,6 +23,7 @@ export default function AdminDashboard() {
 
   const [batches, setBatches] = useState([]);
   const [stats, setStats] = useState(null);
+  const [recentLogs, setRecentLogs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activeQrBatch, setActiveQrBatch] = useState(null);
 
@@ -48,6 +49,10 @@ export default function AdminDashboard() {
   const [copied, setCopied] = useState(null);
   const [deletingBatch, setDeletingBatch] = useState(null); // id of batch being deleted
 
+  // Dashboard Analytics Batch Filter State
+  const [analyticsBatch, setAnalyticsBatch] = useState('ALL');
+  const [statsLoading, setStatsLoading] = useState(false);
+
   useEffect(() => {
     if (typeof window !== 'undefined' && window.location.origin) {
       setBaseUrl(window.location.origin);
@@ -56,20 +61,50 @@ export default function AdminDashboard() {
     }
   }, []);
 
-  async function loadData(customToken) {
+  async function fetchStatsForBatch(batchId) {
+    setAnalyticsBatch(batchId);
+    setStatsLoading(true);
+    try {
+      const { data: freshData } = await supabase.auth.getSession();
+      const token = freshData?.session?.access_token || session?.access_token;
+      if (!token) return;
+
+      const res = await fetch(`/api/admin/stats?batchId=${batchId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (res.ok) {
+        if (data.isTrashed) {
+          setAnalyticsBatch('ALL');
+          return fetchStatsForBatch('ALL');
+        }
+        setStats(data);
+      }
+    } catch (err) {
+      console.error('Failed to fetch batch stats:', err);
+    } finally {
+      setStatsLoading(false);
+    }
+  }
+
+  async function loadData(customToken, targetAnalyticsBatch) {
     setLoading(true);
     const { data: freshData } = await supabase.auth.getSession();
     const token = customToken || freshData?.session?.access_token || session?.access_token;
     if (!token) { setLoading(false); return; }
 
-    const [batchRes, statsRes] = await Promise.all([
+    const batchToFetch = targetAnalyticsBatch !== undefined ? targetAnalyticsBatch : analyticsBatch;
+    const [batchRes, statsRes, auditRes] = await Promise.all([
       fetch('/api/batches', { headers: { Authorization: `Bearer ${token}` } }),
-      fetch('/api/admin/stats', { headers: { Authorization: `Bearer ${token}` } }),
+      fetch(`/api/admin/stats?batchId=${batchToFetch}`, { headers: { Authorization: `Bearer ${token}` } }),
+      fetch('/api/admin/audit?limit=3', { headers: { Authorization: `Bearer ${token}` } }),
     ]);
     const batchJson = await batchRes.json();
     const statsJson = await statsRes.json();
+    const auditJson = await auditRes.json();
     if (batchRes.ok) setBatches(batchJson.batches || []);
     if (statsRes.ok) setStats(statsJson);
+    if (auditRes.ok) setRecentLogs(auditJson.logs || []);
     setLoading(false);
   }
 
@@ -90,6 +125,7 @@ export default function AdminDashboard() {
       const { data } = await supabase
         .from('students')
         .select('id, surname, first_name, student_unique_id, card_number, photo_url')
+        .is('deleted_at', null)
         .or(`surname.ilike.%${q}%,first_name.ilike.%${q}%,student_unique_id.ilike.%${q}%,card_number.ilike.%${q}%`)
         .limit(6);
       setSearchResults(data || []);
@@ -163,7 +199,11 @@ export default function AdminDashboard() {
     });
     setDeletingBatch(null);
     if (res.ok) {
-      loadData(token);
+      const nextBatch = analyticsBatch === batch.id ? 'ALL' : analyticsBatch;
+      if (analyticsBatch === batch.id) {
+        setAnalyticsBatch('ALL');
+      }
+      loadData(token, nextBatch);
     } else {
       const json = await res.json();
       alert(`Delete failed: ${json.error}`);
@@ -283,8 +323,91 @@ export default function AdminDashboard() {
           {/* ── GRAPH ANALYTICS DASHBOARD ── */}
           {stats && (
             <div style={{ marginBottom: 28 }}>
+              {/* Analytics Header & Filter Bar */}
+              <div style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                marginBottom: 16,
+                flexWrap: 'wrap',
+                gap: 12,
+                background: '#fff',
+                padding: '14px 18px',
+                borderRadius: 12,
+                border: '1px solid var(--border)',
+              }}>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                    <h2 style={{ fontSize: '1.1rem', color: 'var(--navy)', margin: 0, fontWeight: 700 }}>
+                      {stats.selectedBatch ? `Analytics: ${stats.selectedBatch.name}` : 'Performance Analytics'}
+                    </h2>
+                    {stats.selectedBatch ? (
+                      <span className="badge badge-gold" style={{ fontSize: '0.72rem' }}>
+                        {stats.selectedBatch.programme} · #{stats.selectedBatch.code}
+                      </span>
+                    ) : (
+                      <span className="badge" style={{ fontSize: '0.72rem', background: 'rgba(59,130,246,0.1)', color: '#2563eb' }}>
+                        All Active Batches
+                      </span>
+                    )}
+                  </div>
+                  <p className="muted text-sm" style={{ margin: '3px 0 0 0', fontSize: '0.78rem' }}>
+                    {stats.selectedBatch
+                      ? `Viewing enrolment, gender ratio, and first timers scoped to ${stats.selectedBatch.name}`
+                      : `Aggregated data across all ${stats.totalBatches} active batches (trashed batches excluded)`}
+                  </p>
+                </div>
+
+                {/* Batch Filter Selector */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  <label htmlFor="analytics-batch-filter" style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--navy)', whiteSpace: 'nowrap' }}>
+                    <i className="fa-solid fa-filter" style={{ marginRight: 5, color: 'var(--gold)' }}></i> Batch Filter:
+                  </label>
+                  <select
+                    id="analytics-batch-filter"
+                    value={analyticsBatch}
+                    onChange={(e) => fetchStatsForBatch(e.target.value)}
+                    disabled={statsLoading}
+                    style={{
+                      padding: '7px 12px',
+                      borderRadius: 8,
+                      fontSize: '0.84rem',
+                      fontWeight: 600,
+                      color: 'var(--navy)',
+                      background: 'var(--paper)',
+                      border: '1.5px solid var(--border)',
+                      cursor: 'pointer',
+                      minWidth: 200,
+                      outline: 'none',
+                    }}
+                  >
+                    <option value="ALL">🌐 All Batches (Overall)</option>
+                    {(stats.availableBatches || batches.map((b) => ({ id: b.id, name: b.batch_name, code: b.batch_code, programme: b.programme_type }))).map((b) => (
+                      <option key={b.id} value={b.id}>
+                        {b.name} ({b.programme || 'MEMBERSHIP'})
+                      </option>
+                    ))}
+                  </select>
+                  {analyticsBatch !== 'ALL' && (
+                    <button
+                      type="button"
+                      className="btn btn-outline btn-sm"
+                      onClick={() => fetchStatsForBatch('ALL')}
+                      disabled={statsLoading}
+                      title="Reset to view all batches"
+                      style={{ fontSize: '0.78rem', padding: '6px 10px', borderRadius: 8 }}
+                    >
+                      Clear Filter
+                    </button>
+                  )}
+                  {statsLoading && (
+                    <i className="fa-solid fa-spinner fa-spin" style={{ color: 'var(--gold)', fontSize: '0.9rem' }}></i>
+                  )}
+                </div>
+              </div>
+
               {/* 4 Premium Stat Cards */}
-              <div className="stats-grid" style={{ marginBottom: 20 }}>
+              <div className="stats-grid" style={{ marginBottom: 20, opacity: statsLoading ? 0.6 : 1, transition: 'opacity 0.2s' }}>
                 <StatCard
                   icon="fa-users"
                   label="Total Enrolled"
@@ -306,25 +429,37 @@ export default function AdminDashboard() {
                   sub={`${stats.firstTimerPercent}% of Membership Enrolment`}
                   colorClass="gold"
                 />
-                <StatCard
-                  icon="fa-layer-group"
-                  label="Batches Overview"
-                  value={`${stats.totalBatches} Total`}
-                  sub={`${stats.activeBatches} Active · ${stats.totalBatches - stats.activeBatches} Inactive`}
-                  colorClass="green"
-                />
+                {stats.selectedBatch ? (
+                  <StatCard
+                    icon="fa-award"
+                    label="Batch Status"
+                    value={stats.selectedBatch.isActive ? 'Active' : 'Inactive'}
+                    sub={`Code: ${stats.selectedBatch.code} · ${stats.selectedBatch.programme}`}
+                    colorClass="green"
+                  />
+                ) : (
+                  <StatCard
+                    icon="fa-layer-group"
+                    label="Batches Overview"
+                    value={`${stats.totalBatches} Active`}
+                    sub={`${stats.activeBatches} Online · ${stats.trashedBatchesCount || 0} in Trash (Excluded)`}
+                    colorClass="green"
+                  />
+                )}
               </div>
 
               {/* Clean Multi-Color Analytics Trend Graphs */}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(380px, 1fr))', gap: 20 }}>
                 
-                {/* Left Panel: Clean Batch Growth Trend Lines */}
+                {/* Left Panel: Clean Batch Growth Trend Lines or Single Batch Breakdown */}
                 <div className="card" style={{ padding: 22 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
                     <h3 style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--navy)', margin: 0 }}>
-                      📈 Batch Student Growth
+                      {stats.selectedBatch ? '📋 Programme Breakdown' : '📈 Batch Enrolment Trends'}
                     </h3>
-                    <span className="badge badge-gold" style={{ fontSize: '0.72rem' }}>Trends</span>
+                    <span className="badge badge-gold" style={{ fontSize: '0.72rem' }}>
+                      {stats.selectedBatch ? 'Enrolment Scope' : 'Comparative'}
+                    </span>
                   </div>
 
                   <CleanGrowthGraph data={stats.batchDistribution || []} />
@@ -336,7 +471,9 @@ export default function AdminDashboard() {
                     <h3 style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--navy)', margin: 0 }}>
                       📊 Student Demographics
                     </h3>
-
+                    <span className="badge" style={{ fontSize: '0.72rem', background: 'rgba(59,130,246,0.1)', color: '#2563eb' }}>
+                      {stats.selectedBatch ? stats.selectedBatch.code : 'Overview'}
+                    </span>
                   </div>
 
                   <CleanDemographicsGraph
@@ -347,6 +484,117 @@ export default function AdminDashboard() {
                   />
                 </div>
 
+              </div>
+            </div>
+          )}
+
+          {/* ── RECENT AUDIT TRAIL ACTIVITY ── */}
+          {recentLogs.length > 0 && (
+            <div className="card" style={{ marginBottom: 26, padding: '18px 22px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <i className="fa-solid fa-clock-rotate-left" style={{ color: 'var(--gold)', fontSize: '1rem' }}></i>
+                  <h3 style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--navy)', margin: 0 }}>
+                    Recent Activity
+                  </h3>
+                </div>
+                <Link
+                  href="/admin/audit"
+                  className="btn btn-ghost btn-sm"
+                  style={{ fontSize: '0.8rem', color: 'var(--gold)', fontWeight: 600, padding: '4px 8px' }}
+                >
+                  View Full Audit Log →
+                </Link>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {recentLogs.map((log) => {
+                  const isDelete = log.action.includes('DELETE');
+                  const isRestore = log.action.includes('RESTORE');
+                  const isGrade = log.action === 'GRADE_UPDATE';
+                  const icon = isDelete
+                    ? 'fa-trash-can'
+                    : isRestore
+                    ? 'fa-rotate-left'
+                    : isGrade
+                    ? 'fa-award'
+                    : 'fa-pen-to-square';
+                  const iconColor = isDelete
+                    ? '#dc2626'
+                    : isRestore
+                    ? '#16a34a'
+                    : isGrade
+                    ? '#d97706'
+                    : '#2563eb';
+                  const iconBg = isDelete
+                    ? 'rgba(220,38,38,0.1)'
+                    : isRestore
+                    ? 'rgba(22,163,74,0.1)'
+                    : isGrade
+                    ? 'rgba(217,119,6,0.1)'
+                    : 'rgba(37,99,235,0.1)';
+
+                  const timeAgo = (iso) => {
+                    if (!iso) return '';
+                    const diff = (Date.now() - new Date(iso).getTime()) / 1000;
+                    if (diff < 60) return 'Just now';
+                    if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+                    if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+                    return new Date(iso).toLocaleDateString();
+                  };
+
+                  return (
+                    <div
+                      key={log.id}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        padding: '10px 14px',
+                        background: 'var(--paper)',
+                        borderRadius: 8,
+                        border: '1px solid var(--border)',
+                        gap: 12,
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
+                        <div style={{
+                          width: 34,
+                          height: 34,
+                          borderRadius: 6,
+                          background: iconBg,
+                          color: iconColor,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontSize: '0.85rem',
+                          flexShrink: 0,
+                        }}>
+                          <i className={`fa-solid ${icon}`}></i>
+                        </div>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{
+                            fontSize: '0.88rem',
+                            fontWeight: 600,
+                            color: 'var(--navy)',
+                            whiteSpace: 'nowrap',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                          }}>
+                            {log.summary || 'Administrative mutation'}
+                          </div>
+                          <div className="muted" style={{ fontSize: '0.75rem', marginTop: 2 }}>
+                            by {log.actor_email || 'System'}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div style={{ fontSize: '0.78rem', color: 'var(--muted)', whiteSpace: 'nowrap', flexShrink: 0 }}>
+                        {timeAgo(log.created_at)}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}
@@ -427,10 +675,7 @@ export default function AdminDashboard() {
               <div className="batch-grid">
                 {paginatedBatches.map((b) => {
                   const regPath = getRegPath(b);
-                  const count =
-                    (b.students?.[0]?.count ?? 0) +
-                    (b.mit_registrations?.[0]?.count ?? 0) +
-                    (b.proclaimers_registrations?.[0]?.count ?? 0);
+                  const count = b.registration_counts?.total ?? b.active_student_count ?? 0;
 
                   return (
                     <div key={b.id} className="batch-card" style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -474,6 +719,13 @@ export default function AdminDashboard() {
                         <div className="batch-card-count" style={{ fontSize: '0.84rem', color: 'var(--muted)' }}>
                           <strong style={{ color: 'var(--navy)', fontSize: '0.98rem' }}>{count}</strong> student{count !== 1 ? 's' : ''} registered
                         </div>
+                        {b.registration_counts && (
+                          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
+                            <span className="badge" style={{ fontSize: '0.68rem' }}>Mem {b.registration_counts.membership || 0}</span>
+                            <span className="badge" style={{ fontSize: '0.68rem' }}>MIT {b.registration_counts.mit || 0}</span>
+                            <span className="badge" style={{ fontSize: '0.68rem' }}>Proc {b.registration_counts.proclaimers || 0}</span>
+                          </div>
+                        )}
                         <div style={{ fontSize: '0.74rem', color: 'var(--muted)', marginTop: 4, wordBreak: 'break-all', fontFamily: 'monospace' }}>
                           {regPath}
                         </div>

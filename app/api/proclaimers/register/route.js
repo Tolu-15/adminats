@@ -1,5 +1,10 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../../lib/supabaseAdmin';
+import {
+  dateOfBirthMatches,
+  dateOfBirthMismatchResponse,
+  dateOfBirthRequiredResponse,
+} from '../../../../lib/studentVerification';
 
 export async function POST(request) {
   let body;
@@ -7,10 +12,10 @@ export async function POST(request) {
     return NextResponse.json({ error: 'Invalid JSON body.' }, { status: 400 });
   }
 
-  const { batch_id, membership_student_id, department } = body;
+  const { batch_id, membership_student_id, department, date_of_birth } = body;
 
-  if (!batch_id || !membership_student_id) {
-    return NextResponse.json({ error: 'batch_id and membership_student_id are required.' }, { status: 400 });
+  if (!batch_id || !membership_student_id || !date_of_birth) {
+    return NextResponse.json(dateOfBirthRequiredResponse(), { status: 400 });
   }
 
   const deptTrimmed = (department || '').trim();
@@ -31,11 +36,14 @@ export async function POST(request) {
   // 2. Verify student exists
   const { data: student, error: sErr } = await supabaseAdmin
     .from('students')
-    .select('id, first_name, surname')
+    .select('id, first_name, surname, date_of_birth')
     .eq('id', membership_student_id)
     .single();
 
   if (sErr || !student) return NextResponse.json({ error: 'Student not found.' }, { status: 404 });
+  if (!dateOfBirthMatches(student.date_of_birth, date_of_birth)) {
+    return NextResponse.json(dateOfBirthMismatchResponse(), { status: 403 });
+  }
 
   // 3. Verify Membership PASSED
   const { data: memReg } = await supabaseAdmin

@@ -291,11 +291,16 @@ export default function BatchDetail({ params: paramsPromise }) {
     return <PageLoader />;
   }
 
-  const totalCount = students.length + mitRegs.length + proclaimersRegs.length;
+  const uniqueStudentIds = new Set([
+    ...students.map((s) => s.id),
+    ...mitRegs.map((r) => r.membership_student?.id || r.student_id),
+    ...proclaimersRegs.map((r) => r.membership_student?.id || r.student_id),
+  ].filter(Boolean));
+  const uniqueStudentCount = uniqueStudentIds.size || students.length;
 
   // Which tabs to show based on what exists
   const tabs = [
-    { id: 'ALL', label: `All (${totalCount})` },
+    { id: 'ALL', label: `All (${uniqueStudentCount})` },
     ...(students.length > 0 ? [{ id: 'MEMBERSHIP', label: `Membership (${students.length})` }] : []),
     ...(mitRegs.length > 0 ? [{ id: 'MIT', label: `MIT (${mitRegs.length})` }] : []),
     ...(proclaimersRegs.length > 0 ? [{ id: 'PROCLAIMERS', label: `Proclaimers (${proclaimersRegs.length})` }] : []),
@@ -315,7 +320,7 @@ export default function BatchDetail({ params: paramsPromise }) {
                 <div className="admin-topbar-title">{batch?.batch_name}</div>
               </div>
               <div className="muted text-sm">
-                {totalCount} student{totalCount !== 1 ? 's' : ''} registered
+                {uniqueStudentCount} student{uniqueStudentCount !== 1 ? 's' : ''} registered
               </div>
             </div>
           </div>

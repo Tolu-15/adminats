@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../../../lib/supabaseAdmin';
 import ExcelJS from 'exceljs';
 import { requireAdmin } from '../../../../../lib/requireAdmin';
+import { fetchAllPaginated, chunkedFetch } from '../../../../../lib/supabasePagination';
 
 export async function GET(request, { params }) {
   const user = await requireAdmin(request);
@@ -19,15 +20,16 @@ export async function GET(request, { params }) {
   const workbook = new ExcelJS.Workbook();
   const safeCode = (batch.batch_name || 'Batch').replace(/[^a-zA-Z0-9_\-]/g, '_');
 
-  // Fetch all registrations in this batch
-  const { data: registrations } = await supabaseAdmin
-    .from('registrations')
-    .select(`
-      id, stage, department, student_id,
-      student:students(surname, first_name, middle_name, student_unique_id, card_number)
-    `)
-    .eq('batch_id', id)
-    .order('created_at', { ascending: true });
+  // Fetch all registrations in this batch (untruncated)
+  const registrations = await fetchAllPaginated(() =>
+    supabaseAdmin
+      .from('registrations')
+      .select(`
+        id, stage, department, student_id,
+        student:students(surname, first_name, middle_name, student_unique_id, card_number)
+      `)
+      .eq('batch_id', id)
+  );
 
   const regsList = registrations || [];
 
@@ -35,13 +37,20 @@ export async function GET(request, { params }) {
     const ids = Array.from(new Set((registrationIds || []).filter(Boolean)));
     if (ids.length === 0) return new Map();
 
-    const { data } = await supabaseAdmin
-      .from(tableName)
-      .select('*')
-      .in('registration_id', ids);
+    const gradeRows = await chunkedFetch(ids, 200, async (chunk) => {
+      const { data, error } = await supabaseAdmin
+        .from(tableName)
+        .select('*')
+        .in('registration_id', chunk);
+      if (error) {
+        console.error(`Export grade fetch error (${tableName}):`, error);
+        return [];
+      }
+      return data || [];
+    });
 
     const gradeMap = new Map();
-    (data || []).forEach((grade) => {
+    gradeRows.forEach((grade) => {
       if (grade.registration_id) gradeMap.set(grade.registration_id, grade);
     });
     return gradeMap;

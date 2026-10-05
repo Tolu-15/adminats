@@ -61,14 +61,22 @@ export function CleanGrowthGraph({ data = [] }) {
     return (
       <div style={{ height: 230, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', padding: '8px 0' }}>
         {/* Header Summary */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', paddingBottom: 10, borderBottom: '1px solid #F1F5F9' }}>
-          <div>
-            <div style={{ fontSize: '1rem', fontWeight: 800, color: 'var(--navy)' }}>{b.name}</div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', paddingBottom: 10, borderBottom: '1px solid #F1F5F9', gap: 12 }}>
+          <div style={{ minWidth: 0 }}>
+            <div
+              title={b.name}
+              style={{
+                fontSize: '1rem', fontWeight: 800, color: 'var(--navy)',
+                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 240,
+              }}
+            >
+              {b.name}
+            </div>
             <div style={{ fontSize: '0.78rem', color: '#64748B', marginTop: 2 }}>
               Batch Code: <span style={{ fontFamily: 'monospace', fontWeight: 700, color: 'var(--gold)' }}>#{b.code}</span>
             </div>
           </div>
-          <div style={{ textAlign: 'right' }}>
+          <div style={{ textAlign: 'right', flexShrink: 0 }}>
             <div style={{ fontSize: '1.4rem', fontWeight: 900, color: 'var(--navy)', lineHeight: 1 }}>{total}</div>
             <div style={{ fontSize: '0.72rem', fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', marginTop: 4 }}>
               Total Enrolled

@@ -25,6 +25,10 @@ export default function BatchDetail({ params: paramsPromise }) {
   const [typeFilter, setTypeFilter] = useState('ALL');
   const [showQrModal, setShowQrModal] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [renaming, setRenaming] = useState(false);
+  const [renameValue, setRenameValue] = useState('');
+  const [renameSaving, setRenameSaving] = useState(false);
+  const [renameError, setRenameError] = useState('');
 
   // Import state
   const [importing, setImporting] = useState(false);
@@ -286,6 +290,41 @@ export default function BatchDetail({ params: paramsPromise }) {
     }
   }
 
+  function startRename() {
+    setRenameValue(batch?.batch_name || '');
+    setRenameError('');
+    setRenaming(true);
+  }
+
+  function cancelRename() {
+    setRenaming(false);
+    setRenameValue('');
+    setRenameError('');
+  }
+
+  async function saveRename() {
+    const nextName = renameValue.trim();
+    if (!nextName) { setRenameError('Batch name cannot be empty.'); return; }
+
+    setRenameSaving(true);
+    setRenameError('');
+    const { data: freshData } = await supabase.auth.getSession();
+    const token = freshData?.session?.access_token || session?.access_token;
+
+    const res = await fetch(`/api/batches/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ batch_name: nextName }),
+    });
+    const json = await res.json();
+    setRenameSaving(false);
+    if (!res.ok) { setRenameError(json.error || 'Failed to rename batch.'); return; }
+
+    setBatch((prev) => ({ ...prev, batch_name: json.batch.batch_name }));
+    setRenaming(false);
+    setRenameValue('');
+  }
+
   if (session === undefined || loading) {
     return <PageLoader />;
   }
@@ -315,10 +354,53 @@ export default function BatchDetail({ params: paramsPromise }) {
             <Link href="/admin" className="btn btn-ghost btn-sm" style={{ padding: '6px 10px' }} onClick={handleNavigationGuard}>
               ← Back
             </Link>
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <div className="admin-topbar-title">{batch?.batch_name}</div>
-              </div>
+            <div style={{ minWidth: 0 }}>
+              {renaming ? (
+                <div>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <input
+                      type="text"
+                      value={renameValue}
+                      onChange={(e) => setRenameValue(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') saveRename();
+                        if (e.key === 'Escape') cancelRename();
+                      }}
+                      autoFocus
+                      disabled={renameSaving}
+                      style={{ fontSize: '1rem', padding: '6px 10px', minWidth: 220 }}
+                    />
+                    <button className="btn btn-primary btn-sm" onClick={saveRename} disabled={renameSaving} title="Save name" style={{ padding: '6px 10px' }}>
+                      {renameSaving ? <i className="fa-solid fa-spinner fa-spin" /> : <i className="fa-solid fa-check" />}
+                    </button>
+                    <button className="btn btn-outline btn-sm" onClick={cancelRename} disabled={renameSaving} title="Cancel" style={{ padding: '6px 10px' }}>
+                      <i className="fa-solid fa-xmark" />
+                    </button>
+                  </div>
+                  {renameError && (
+                    <div style={{ color: '#dc2626', fontSize: '0.78rem', marginTop: 4 }}>{renameError}</div>
+                  )}
+                </div>
+              ) : (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                  <div
+                    className="admin-topbar-title"
+                    title={batch?.batch_name}
+                    style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 360 }}
+                  >
+                    {batch?.batch_name}
+                  </div>
+                  {!session?.isViewer && (
+                    <button
+                      onClick={startRename}
+                      title="Rename batch"
+                      style={{ background: 'transparent', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: '0.82rem', flexShrink: 0, padding: 4 }}
+                    >
+                      <i className="fa-solid fa-pen" />
+                    </button>
+                  )}
+                </div>
+              )}
               <div className="muted text-sm">
                 {uniqueStudentCount} student{uniqueStudentCount !== 1 ? 's' : ''} registered
               </div>

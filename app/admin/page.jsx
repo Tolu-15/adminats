@@ -11,6 +11,12 @@ import StatCard from '../../components/StatCard';
 import CreateBatchForm from '../../components/CreateBatchForm';
 import QRCodeModal from '../../components/QRCodeModal';
 import { CleanGrowthGraph, CleanDemographicsGraph } from '../../components/AnalyticsCharts';
+import { sanitizeSearchTerm } from '../../lib/sanitizeSearch';
+
+function truncateLabel(label, maxLen) {
+  if (!label || label.length <= maxLen) return label || '';
+  return `${label.slice(0, maxLen - 1).trimEnd()}…`;
+}
 
 const PROG_STYLES = {
   MEMBERSHIP:   { label: 'MEMBERSHIP', color: '#3b82f6', bg: 'rgba(59,130,246,0.12)' },
@@ -37,6 +43,13 @@ export default function AdminDashboard() {
   const [studentSearch, setStudentSearch] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [searchingStudents, setSearchingStudents] = useState(false);
+  const [searchError, setSearchError] = useState('');
+
+  // Batch rename state
+  const [renamingBatchId, setRenamingBatchId] = useState(null);
+  const [renameValue, setRenameValue] = useState('');
+  const [renameSaving, setRenameSaving] = useState(false);
+  const [renameError, setRenameError] = useState('');
 
   // Create Batch Form state
   const [showForm, setShowForm] = useState(false);
@@ -117,18 +130,25 @@ export default function AdminDashboard() {
 
   // Global Student Search logic
   useEffect(() => {
-    const q = studentSearch.trim();
-    if (!q) { setSearchResults([]); return; }
+    const q = sanitizeSearchTerm(studentSearch);
+    if (!q) { setSearchResults([]); setSearchError(''); return; }
 
     const timer = setTimeout(async () => {
       setSearchingStudents(true);
-      const { data } = await supabase
+      setSearchError('');
+      const { data, error } = await supabase
         .from('students')
         .select('id, surname, first_name, student_unique_id, card_number, photo_url')
         .is('deleted_at', null)
         .or(`surname.ilike.%${q}%,first_name.ilike.%${q}%,student_unique_id.ilike.%${q}%,card_number.ilike.%${q}%`)
         .limit(6);
-      setSearchResults(data || []);
+      if (error) {
+        console.error('Student search failed:', error);
+        setSearchError('Search failed. Try a simpler search term.');
+        setSearchResults([]);
+      } else {
+        setSearchResults(data || []);
+      }
       setSearchingStudents(false);
     }, 300);
 
@@ -210,6 +230,41 @@ export default function AdminDashboard() {
     }
   }
 
+  function startRename(batch) {
+    setRenamingBatchId(batch.id);
+    setRenameValue(batch.batch_name);
+    setRenameError('');
+  }
+
+  function cancelRename() {
+    setRenamingBatchId(null);
+    setRenameValue('');
+    setRenameError('');
+  }
+
+  async function saveRename(batchId) {
+    const nextName = renameValue.trim();
+    if (!nextName) { setRenameError('Batch name cannot be empty.'); return; }
+
+    setRenameSaving(true);
+    setRenameError('');
+    const { data: freshData } = await supabase.auth.getSession();
+    const token = freshData?.session?.access_token || session?.access_token;
+
+    const res = await fetch(`/api/batches/${batchId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ batch_name: nextName }),
+    });
+    const json = await res.json();
+    setRenameSaving(false);
+    if (!res.ok) { setRenameError(json.error || 'Failed to rename batch.'); return; }
+
+    setRenamingBatchId(null);
+    setRenameValue('');
+    loadData(token);
+  }
+
   if (session === undefined) {
     return (
       <div className="admin-shell">
@@ -266,6 +321,8 @@ export default function AdminDashboard() {
               }}>
                 {searchingStudents ? (
                   <div style={{ padding: 14, textAlign: 'center', color: 'var(--muted)', fontSize: '0.85rem' }}>Searching students…</div>
+                ) : searchError ? (
+                  <div style={{ padding: 14, textAlign: 'center', color: '#dc2626', fontSize: '0.85rem' }}>{searchError}</div>
                 ) : searchResults.length === 0 ? (
                   <div style={{ padding: 14, textAlign: 'center', color: 'var(--muted)', fontSize: '0.85rem' }}>No student found matching "{studentSearch}"</div>
                 ) : (
@@ -336,9 +393,15 @@ export default function AdminDashboard() {
                 borderRadius: 12,
                 border: '1px solid var(--border)',
               }}>
-                <div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                    <h2 style={{ fontSize: '1.1rem', color: 'var(--navy)', margin: 0, fontWeight: 700 }}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', minWidth: 0 }}>
+                    <h2
+                      title={stats.selectedBatch ? `Analytics: ${stats.selectedBatch.name}` : undefined}
+                      style={{
+                        fontSize: '1.1rem', color: 'var(--navy)', margin: 0, fontWeight: 700,
+                        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 320,
+                      }}
+                    >
                       {stats.selectedBatch ? `Analytics: ${stats.selectedBatch.name}` : 'Performance Analytics'}
                     </h2>
                     {stats.selectedBatch ? (
@@ -378,13 +441,17 @@ export default function AdminDashboard() {
                       border: '1.5px solid var(--border)',
                       cursor: 'pointer',
                       minWidth: 200,
+                      maxWidth: 240,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
                       outline: 'none',
                     }}
                   >
                     <option value="ALL">🌐 All Batches (Overall)</option>
                     {(stats.availableBatches || batches.map((b) => ({ id: b.id, name: b.batch_name, code: b.batch_code, programme: b.programme_type }))).map((b) => (
-                      <option key={b.id} value={b.id}>
-                        {b.name} ({b.programme || 'MEMBERSHIP'})
+                      <option key={b.id} value={b.id} title={`${b.name} (${b.programme || 'MEMBERSHIP'})`}>
+                        {truncateLabel(b.name, 28)} ({b.programme || 'MEMBERSHIP'})
                       </option>
                     ))}
                   </select>
@@ -681,21 +748,83 @@ export default function AdminDashboard() {
                     <div key={b.id} className="batch-card" style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 12 }}>
                       {/* Card Header: Batch Name, Code Badge & Delete Icon */}
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
-                        <div>
-                          <a href={`/admin/batch/${b.id}`} className="batch-card-name" style={{ textDecoration: 'none', fontSize: '1.05rem', fontWeight: 700, color: 'var(--navy)' }}>
-                            {b.batch_name}
-                          </a>
-                          <div style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                            {b.programme_type && b.programme_type !== 'MEMBERSHIP' && (
-                              <span className="badge badge-gold" style={{ fontSize: '0.68rem', padding: '2px 8px' }}>
-                                {b.programme_type}
-                              </span>
+                        {renamingBatchId === b.id ? (
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ display: 'flex', gap: 6 }}>
+                              <input
+                                type="text"
+                                value={renameValue}
+                                onChange={(e) => setRenameValue(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') saveRename(b.id);
+                                  if (e.key === 'Escape') cancelRename();
+                                }}
+                                autoFocus
+                                disabled={renameSaving}
+                                style={{ fontSize: '0.95rem', padding: '6px 10px', flex: 1, minWidth: 0 }}
+                              />
+                              <button
+                                className="btn btn-primary btn-sm"
+                                onClick={() => saveRename(b.id)}
+                                disabled={renameSaving}
+                                title="Save name"
+                                style={{ padding: '6px 10px' }}
+                              >
+                                {renameSaving ? <i className="fa-solid fa-spinner fa-spin" /> : <i className="fa-solid fa-check" />}
+                              </button>
+                              <button
+                                className="btn btn-outline btn-sm"
+                                onClick={cancelRename}
+                                disabled={renameSaving}
+                                title="Cancel"
+                                style={{ padding: '6px 10px' }}
+                              >
+                                <i className="fa-solid fa-xmark" />
+                              </button>
+                            </div>
+                            {renameError && (
+                              <div style={{ color: '#dc2626', fontSize: '0.74rem', marginTop: 4 }}>{renameError}</div>
                             )}
                           </div>
-                        </div>
+                        ) : (
+                          <div style={{ minWidth: 0, flex: 1 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                              <a
+                                href={`/admin/batch/${b.id}`}
+                                className="batch-card-name"
+                                title={b.batch_name}
+                                style={{
+                                  textDecoration: 'none', fontSize: '1.05rem', fontWeight: 700, color: 'var(--navy)',
+                                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0,
+                                }}
+                              >
+                                {b.batch_name}
+                              </a>
+                              {!session?.isViewer && (
+                                <button
+                                  onClick={() => startRename(b)}
+                                  title="Rename batch"
+                                  style={{
+                                    background: 'transparent', border: 'none', color: 'var(--muted)',
+                                    cursor: 'pointer', fontSize: '0.78rem', flexShrink: 0, padding: 4,
+                                  }}
+                                >
+                                  <i className="fa-solid fa-pen" />
+                                </button>
+                              )}
+                            </div>
+                            <div style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                              {b.programme_type && b.programme_type !== 'MEMBERSHIP' && (
+                                <span className="badge badge-gold" style={{ fontSize: '0.68rem', padding: '2px 8px' }}>
+                                  {b.programme_type}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        )}
 
                         {/* Top-Right Delete Button (Full Admin Only) */}
-                        {!session?.isViewer && (
+                        {!session?.isViewer && renamingBatchId !== b.id && (
                           <button
                             onClick={() => deleteBatch(b)}
                             disabled={deletingBatch === b.id}

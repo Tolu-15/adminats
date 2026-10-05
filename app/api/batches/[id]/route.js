@@ -121,6 +121,62 @@ async function deleteLegacyProgrammeRows(tableName, gradesTableName, gradeColumn
   }
 }
 
+export async function PATCH(request, { params }) {
+  const user = await requireAdmin(request);
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const resolvedParams = await params;
+  const id = resolvedParams?.id;
+  if (!id) {
+    return NextResponse.json({ error: 'Batch ID is required' }, { status: 400 });
+  }
+
+  const body = await request.json();
+  const batch_name = typeof body.batch_name === 'string' ? body.batch_name.trim() : '';
+  if (!batch_name) {
+    return NextResponse.json({ error: 'Batch name is required.' }, { status: 400 });
+  }
+  if (batch_name.length > 100) {
+    return NextResponse.json({ error: 'Batch name must be 100 characters or fewer.' }, { status: 400 });
+  }
+
+  const { data: existing, error: fetchErr } = await supabaseAdmin
+    .from('batches')
+    .select('batch_name, batch_code')
+    .eq('id', id)
+    .is('deleted_at', null)
+    .maybeSingle();
+
+  if (fetchErr) return NextResponse.json({ error: fetchErr.message }, { status: 500 });
+  if (!existing) return NextResponse.json({ error: 'Batch not found.' }, { status: 404 });
+
+  const previousName = existing.batch_name;
+
+  const { data, error } = await supabaseAdmin
+    .from('batches')
+    .update({ batch_name })
+    .eq('id', id)
+    .select('id, batch_name, batch_code, programme_type')
+    .single();
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  await logAdminAction({
+    action: 'BATCH_UPDATE',
+    entityType: 'batch',
+    entityId: id,
+    actor: user,
+    details: {
+      entity_name: data.batch_name,
+      batch_code: data.batch_code,
+      previous_name: previousName,
+      summary: `Renamed batch "${previousName}" to "${data.batch_name}"`,
+    },
+  });
+
+  return NextResponse.json({ batch: data });
+}
+
 export async function DELETE(request, { params }) {
   const user = await requireAdmin(request);
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });

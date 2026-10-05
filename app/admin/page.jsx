@@ -128,7 +128,9 @@ export default function AdminDashboard() {
     setCurrentPage(1);
   }, [batchSearch]);
 
-  // Global Student Search logic
+  // Global Student Search logic — goes through the authenticated API route
+  // (not a direct browser Supabase query) so RLS on `students` can't
+  // silently return zero rows for a logged-in admin.
   useEffect(() => {
     const q = sanitizeSearchTerm(studentSearch);
     if (!q) { setSearchResults([]); setSearchError(''); return; }
@@ -136,24 +138,29 @@ export default function AdminDashboard() {
     const timer = setTimeout(async () => {
       setSearchingStudents(true);
       setSearchError('');
-      const { data, error } = await supabase
-        .from('students')
-        .select('id, surname, first_name, student_unique_id, card_number, photo_url')
-        .is('deleted_at', null)
-        .or(`surname.ilike.%${q}%,first_name.ilike.%${q}%,student_unique_id.ilike.%${q}%,card_number.ilike.%${q}%`)
-        .limit(6);
-      if (error) {
-        console.error('Student search failed:', error);
+      try {
+        const { data: freshData } = await supabase.auth.getSession();
+        const token = freshData?.session?.access_token || session?.access_token;
+        const res = await fetch(`/api/students/search?q=${encodeURIComponent(q)}&limit=6`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const json = await res.json();
+        if (!res.ok) {
+          setSearchError(json.error || 'Search failed. Try a simpler search term.');
+          setSearchResults([]);
+        } else {
+          setSearchResults(json.students || []);
+        }
+      } catch (err) {
+        console.error('Student search failed:', err);
         setSearchError('Search failed. Try a simpler search term.');
         setSearchResults([]);
-      } else {
-        setSearchResults(data || []);
       }
       setSearchingStudents(false);
     }, 300);
 
     return () => clearTimeout(timer);
-  }, [studentSearch]);
+  }, [studentSearch, session]);
 
   async function createBatch(e) {
     e.preventDefault();

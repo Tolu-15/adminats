@@ -27,19 +27,23 @@ export default function SearchStudents() {
       setLoading(true);
       setSearched(true);
       setSearchError('');
-      const { data, error } = await supabase
-        .from('students')
-        .select('id, student_unique_id, surname, first_name, middle_name, photo_url, created_at, batches(batch_name, batch_code)')
-        .is('deleted_at', null)
-        .or(`surname.ilike.%${q}%,first_name.ilike.%${q}%,student_unique_id.ilike.%${q}%,email.ilike.%${q}%`)
-        .order('created_at', { ascending: false })
-        .limit(40);
-      if (error) {
-        console.error('Student search failed:', error);
+      try {
+        const { data: freshData } = await supabase.auth.getSession();
+        const token = freshData?.session?.access_token || session?.access_token;
+        const res = await fetch(`/api/students/search?q=${encodeURIComponent(q)}&limit=40`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const json = await res.json();
+        if (!res.ok) {
+          setSearchError(json.error || 'Search failed. Try a simpler search term.');
+          setResults([]);
+        } else {
+          setResults(json.students || []);
+        }
+      } catch (err) {
+        console.error('Student search failed:', err);
         setSearchError('Search failed. Try a simpler search term.');
         setResults([]);
-      } else {
-        setResults(data || []);
       }
       setLoading(false);
     }, 350);

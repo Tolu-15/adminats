@@ -143,9 +143,21 @@ export function CleanGrowthGraph({ data = [] }) {
   const maxTotal = Math.max(...graphData.map((d) => Math.max(d.total || 0, d.mem || 0, d.mit || 0, d.proc || 0)), 5);
   const maxY = Math.ceil(maxTotal / 5) * 5 || 10;
 
-  const width = 500;
   const height = 230;
   const margin = { top: 30, right: 30, bottom: 42, left: 45 };
+
+  // Each batch label needs ~58px of breathing room; cramming many batches into
+  // a fixed-width chart made the x-axis codes overlap into unreadable text.
+  // Grow the chart to fit the data instead, and let the wrapper scroll horizontally.
+  const MIN_POINT_SPACING = 58;
+  const naturalWidth = margin.left + margin.right + Math.max(graphData.length - 1, 1) * MIN_POINT_SPACING;
+  const width = Math.max(500, naturalWidth);
+  const needsScroll = width > 500;
+
+  const truncateCode = (code) => {
+    const str = String(code || '');
+    return str.length > 10 ? `${str.slice(0, 9)}…` : str;
+  };
 
   const plotW = width - margin.left - margin.right;
   const plotH = height - margin.top - margin.bottom;
@@ -180,7 +192,14 @@ export function CleanGrowthGraph({ data = [] }) {
 
   return (
     <div style={{ width: '100%', position: 'relative' }}>
-      <svg width="100%" height={height} viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="xMidYMid meet">
+      <div style={needsScroll ? { overflowX: 'auto', paddingBottom: 4 } : undefined}>
+      <svg
+        width={needsScroll ? width : '100%'}
+        height={height}
+        viewBox={`0 0 ${width} ${height}`}
+        preserveAspectRatio="xMidYMid meet"
+        style={needsScroll ? { display: 'block', minWidth: width } : undefined}
+      >
         {/* Horizontal Grid Lines */}
         {yTicks.map((val, idx) => {
           const yPos = margin.top + plotH - (val / maxY) * plotH;
@@ -199,7 +218,8 @@ export function CleanGrowthGraph({ data = [] }) {
           <g key={i}>
             <line x1={pt.x} y1={margin.top} x2={pt.x} y2={margin.top + plotH} stroke="#F8FAFC" strokeWidth="1.5" />
             <text x={pt.x} y={margin.top + plotH + 18} textAnchor="middle" fontSize="10.5" fontWeight="700" fill="#475569">
-              #{pt.code}
+              #{truncateCode(pt.code)}
+              <title>{pt.name} (#{pt.code})</title>
             </text>
           </g>
         ))}
@@ -247,6 +267,7 @@ export function CleanGrowthGraph({ data = [] }) {
           </g>
         ))}
       </svg>
+      </div>
 
       {/* Legend */}
       <div style={{ display: 'flex', gap: 18, justifyContent: 'center', marginTop: 2, fontSize: '0.78rem', fontWeight: 700 }}>

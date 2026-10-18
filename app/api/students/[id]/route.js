@@ -4,6 +4,24 @@ import { requireAdmin } from '../../../../lib/requireAdmin';
 import { validateStudentData, sanitizeDate } from '../../../../lib/validators';
 import { logAdminAction } from '../../../../lib/auditLog';
 
+// Flatten biodata onto student object for seamless UI component compatibility
+function flattenStudent(rawStudent, nok, spiritual) {
+  return {
+    ...rawStudent,
+    next_of_kin: nok?.name || null,
+    next_of_kin_relationship: nok?.relationship || null,
+    next_of_kin_phone: nok?.phone || null,
+    next_of_kin_address: nok?.address || null,
+    born_again: spiritual?.born_again ? 'Yes' : (spiritual?.born_again === false ? 'No' : null),
+    born_again_details: spiritual?.born_again_details || null,
+    baptized_water: spiritual?.baptized_water,
+    baptized_water_details: spiritual?.baptized_water_details || null,
+    baptized_holy_spirit: spiritual?.baptized_holy_spirit,
+    baptized_holy_spirit_details: spiritual?.baptized_holy_spirit_details || null,
+    is_first_timer: spiritual?.is_first_timer ? 'Yes' : 'No',
+  };
+}
+
 export async function GET(request, { params }) {
   const user = await requireAdmin(request);
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -23,30 +41,13 @@ export async function GET(request, { params }) {
 
   // 2. Fetch Next of Kin & Spiritual Profile extension tables
   const [nokRes, spiritualRes, regsRes] = await Promise.all([
-    supabaseAdmin.from('student_next_of_kin').select('*').eq('student_id', id).maybeSingle(),
-    supabaseAdmin.from('student_spiritual_profile').select('*').eq('student_id', id).maybeSingle(),
+    supabaseAdmin.from('student_next_of_kin').select('*').eq('student_id', id).limit(1).maybeSingle(),
+    supabaseAdmin.from('student_spiritual_profile').select('*').eq('student_id', id).limit(1).maybeSingle(),
     supabaseAdmin.from('registrations').select('*, batch:batches(*)').eq('student_id', id),
   ]);
 
-  const nok = nokRes.data;
-  const spiritual = spiritualRes.data;
   const registrations = regsRes.data || [];
-
-  // Flatten biodata onto student object for seamless UI component compatibility
-  const student = {
-    ...rawStudent,
-    next_of_kin: nok?.name || null,
-    next_of_kin_relationship: nok?.relationship || null,
-    next_of_kin_phone: nok?.phone || null,
-    next_of_kin_address: nok?.address || null,
-    born_again: spiritual?.born_again ? 'Yes' : (spiritual?.born_again === false ? 'No' : null),
-    born_again_details: spiritual?.born_again_details || null,
-    baptized_water: spiritual?.baptized_water,
-    baptized_water_details: spiritual?.baptized_water_details || null,
-    baptized_holy_spirit: spiritual?.baptized_holy_spirit,
-    baptized_holy_spirit_details: spiritual?.baptized_holy_spirit_details || null,
-    is_first_timer: spiritual?.is_first_timer ? 'Yes' : 'No',
-  };
+  const student = flattenStudent(rawStudent, nokRes.data, spiritualRes.data);
 
   // 3. Extract membership registration & grades
   const memReg = registrations.find((r) => r.stage === 'membership');
@@ -150,8 +151,8 @@ export async function PATCH(request, { params }) {
     .single();
 
   const [nokOldRes, spiritualOldRes] = await Promise.all([
-    supabaseAdmin.from('student_next_of_kin').select('*').eq('student_id', id).maybeSingle(),
-    supabaseAdmin.from('student_spiritual_profile').select('*').eq('student_id', id).maybeSingle(),
+    supabaseAdmin.from('student_next_of_kin').select('*').eq('student_id', id).limit(1).maybeSingle(),
+    supabaseAdmin.from('student_spiritual_profile').select('*').eq('student_id', id).limit(1).maybeSingle(),
   ]);
   const existingNok = nokOldRes.data || {};
   const existingSpiritual = spiritualOldRes.data || {};
@@ -209,7 +210,13 @@ export async function PATCH(request, { params }) {
       phone: body.next_of_kin_phone || null,
       address: body.next_of_kin_address || null,
     };
-    await supabaseAdmin.from('student_next_of_kin').upsert(nokPayload);
+    // Update the existing row, or insert one if this student has none yet.
+    // (A bare upsert() conflicts on the table's primary key, not student_id, so it
+    // never matched the existing row and its error was silently ignored.)
+    const { error: nokErr } = nokOldRes.data
+      ? await supabaseAdmin.from('student_next_of_kin').update(nokPayload).eq('student_id', id)
+      : await supabaseAdmin.from('student_next_of_kin').insert(nokPayload);
+    if (nokErr) return NextResponse.json({ error: `Next of kin: ${nokErr.message}` }, { status: 500 });
 
     const nokCheck = {
       next_of_kin: existingNok.name,
@@ -248,7 +255,10 @@ export async function PATCH(request, { params }) {
       baptized_holy_spirit_details: body.baptized_holy_spirit_details || null,
       is_first_timer: body.is_first_timer === 'Yes' || body.is_first_timer === true,
     };
-    await supabaseAdmin.from('student_spiritual_profile').upsert(spiritualPayload);
+    const { error: spErr } = spiritualOldRes.data
+      ? await supabaseAdmin.from('student_spiritual_profile').update(spiritualPayload).eq('student_id', id)
+      : await supabaseAdmin.from('student_spiritual_profile').insert(spiritualPayload);
+    if (spErr) return NextResponse.json({ error: `Spiritual profile: ${spErr.message}` }, { status: 500 });
 
     for (const f of spiritualFields) {
       if (f in body) {
@@ -262,12 +272,13 @@ export async function PATCH(request, { params }) {
     }
   }
 
-  // Re-fetch updated full student record
-  const { data: updatedStudent } = await supabaseAdmin
-    .from('students')
-    .select('*, batch:batches(*)')
-    .eq('id', id)
-    .single();
+  // Re-fetch updated full student record, including next of kin & spiritual profile
+  const [{ data: rawUpdated }, nokNewRes, spiritualNewRes] = await Promise.all([
+    supabaseAdmin.from('students').select('*, batch:batches(*)').eq('id', id).single(),
+    supabaseAdmin.from('student_next_of_kin').select('*').eq('student_id', id).limit(1).maybeSingle(),
+    supabaseAdmin.from('student_spiritual_profile').select('*').eq('student_id', id).limit(1).maybeSingle(),
+  ]);
+  const updatedStudent = rawUpdated ? flattenStudent(rawUpdated, nokNewRes.data, spiritualNewRes.data) : null;
 
   const studentName = [updatedStudent?.first_name, updatedStudent?.surname].filter(Boolean).join(' ') || 'Student';
 

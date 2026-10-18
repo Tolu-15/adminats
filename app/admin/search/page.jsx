@@ -6,6 +6,7 @@ import { supabase } from '../../../lib/supabaseClient';
 import { useAdminGuard } from '../../../lib/useAdminGuard';
 import Sidebar from '../../../components/Sidebar';
 import { getImageUrl } from '../../../lib/getImageUrl';
+import { sanitizeSearchTerm } from '../../../lib/sanitizeSearch';
 
 export default function SearchStudents() {
   const session = useAdminGuard();
@@ -13,25 +14,37 @@ export default function SearchStudents() {
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
+  const [searchError, setSearchError] = useState('');
   const debounceRef = useRef(null);
 
   useEffect(() => {
     if (!session) return;
-    if (!query.trim()) { setResults([]); setSearched(false); return; }
+    const q = sanitizeSearchTerm(query);
+    if (!q) { setResults([]); setSearched(false); setSearchError(''); return; }
 
     clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(async () => {
       setLoading(true);
       setSearched(true);
-      const q = query.trim();
-      const { data } = await supabase
-        .from('students')
-        .select('id, student_unique_id, surname, first_name, middle_name, photo_url, created_at, batches(batch_name, batch_code)')
-        .is('deleted_at', null)
-        .or(`surname.ilike.%${q}%,first_name.ilike.%${q}%,student_unique_id.ilike.%${q}%,email.ilike.%${q}%`)
-        .order('created_at', { ascending: false })
-        .limit(40);
-      setResults(data || []);
+      setSearchError('');
+      try {
+        const { data: freshData } = await supabase.auth.getSession();
+        const token = freshData?.session?.access_token || session?.access_token;
+        const res = await fetch(`/api/students/search?q=${encodeURIComponent(q)}&limit=40`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const json = await res.json();
+        if (!res.ok) {
+          setSearchError(json.error || 'Search failed. Try a simpler search term.');
+          setResults([]);
+        } else {
+          setResults(json.students || []);
+        }
+      } catch (err) {
+        console.error('Student search failed:', err);
+        setSearchError('Search failed. Try a simpler search term.');
+        setResults([]);
+      }
       setLoading(false);
     }, 350);
 
@@ -89,7 +102,14 @@ export default function SearchStudents() {
               </div>
             )}
 
-            {!loading && searched && results.length === 0 && (
+            {!loading && searchError && (
+              <div className="card" style={{ textAlign: 'center', padding: 40 }}>
+                <div style={{ fontSize: '2rem', marginBottom: 10, color: '#dc2626' }}>⚠️</div>
+                <p className="muted">{searchError}</p>
+              </div>
+            )}
+
+            {!loading && !searchError && searched && results.length === 0 && (
               <div className="card" style={{ textAlign: 'center', padding: 40 }}>
                 <div style={{ fontSize: '2rem', marginBottom: 10 }}>🫤</div>
                 <p className="muted">No students found matching "<strong>{query}</strong>"</p>

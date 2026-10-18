@@ -1,16 +1,16 @@
 'use client';
 
-import React, { useState } from 'react';
+import React from 'react';
 
 /**
  * 1. CLEAN BATCH GROWTH GRAPH & SINGLE-BATCH BREAKDOWN
  * - If data is empty: renders an elegant SVG empty state (no fake mock data!)
  * - If data has 1 batch: renders an executive Programme Distribution Card
- * - If data has >1 batches: renders smooth multi-line trend bezier curves
+ * - If data has >1 batches: renders a horizontal stacked-bar comparison, one
+ *   row per batch, so long batch names have room on the left instead of
+ *   colliding as x-axis labels under a line chart
  */
 export function CleanGrowthGraph({ data = [] }) {
-  const [activePoint, setActivePoint] = useState(null);
-
   // Empty state: no fake/mock dummy data
   if (!data || data.length === 0) {
     return (
@@ -61,14 +61,22 @@ export function CleanGrowthGraph({ data = [] }) {
     return (
       <div style={{ height: 230, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', padding: '8px 0' }}>
         {/* Header Summary */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', paddingBottom: 10, borderBottom: '1px solid #F1F5F9' }}>
-          <div>
-            <div style={{ fontSize: '1rem', fontWeight: 800, color: 'var(--navy)' }}>{b.name}</div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', paddingBottom: 10, borderBottom: '1px solid #F1F5F9', gap: 12 }}>
+          <div style={{ minWidth: 0 }}>
+            <div
+              title={b.name}
+              style={{
+                fontSize: '1rem', fontWeight: 800, color: 'var(--navy)',
+                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 240,
+              }}
+            >
+              {b.name}
+            </div>
             <div style={{ fontSize: '0.78rem', color: '#64748B', marginTop: 2 }}>
               Batch Code: <span style={{ fontFamily: 'monospace', fontWeight: 700, color: 'var(--gold)' }}>#{b.code}</span>
             </div>
           </div>
-          <div style={{ textAlign: 'right' }}>
+          <div style={{ textAlign: 'right', flexShrink: 0 }}>
             <div style={{ fontSize: '1.4rem', fontWeight: 900, color: 'var(--navy)', lineHeight: 1 }}>{total}</div>
             <div style={{ fontSize: '0.72rem', fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', marginTop: 4 }}>
               Total Enrolled
@@ -130,145 +138,82 @@ export function CleanGrowthGraph({ data = [] }) {
     );
   }
 
-  // Multi-batch comparative trend chart
-  const graphData = [...data].reverse();
-  const maxTotal = Math.max(...graphData.map((d) => Math.max(d.total || 0, d.mem || 0, d.mit || 0, d.proc || 0)), 5);
-  const maxY = Math.ceil(maxTotal / 5) * 5 || 10;
+  // Multi-batch comparison: one horizontal stacked bar per batch. A
+  // categorical x-axis of batch names/codes doesn't scale past a handful of
+  // batches — their labels collide no matter how wide the chart gets. A
+  // horizontal bar puts the label to the left, where long names have real
+  // room, and the list simply scrolls vertically once there are many rows.
+  const SEGMENTS = [
+    { key: 'mem', label: 'Membership', color: '#2563EB' },
+    { key: 'mit', label: 'MIT', color: '#D97706', barColor: '#F59E0B' },
+    { key: 'proc', label: 'Proclaimers', color: '#7C3AED', barColor: '#8B5CF6' },
+  ];
 
-  const width = 500;
-  const height = 230;
-  const margin = { top: 30, right: 30, bottom: 42, left: 45 };
-
-  const plotW = width - margin.left - margin.right;
-  const plotH = height - margin.top - margin.bottom;
-
-  // Compute clean Coordinates
-  const getCoords = (key) => graphData.map((d, idx) => {
-    const x = margin.left + (idx / (graphData.length - 1)) * plotW;
-    const y = margin.top + plotH - ((d[key] || 0) / maxY) * plotH;
-    return { ...d, x, y, val: d[key] || 0 };
-  });
-
-  const memPoints = getCoords('mem');
-  const mitPoints = getCoords('mit');
-  const procPoints = getCoords('proc');
-
-  // Smooth SVG Bezier Path builder
-  const buildPath = (pts) => pts.reduce((acc, pt, i, arr) => {
-    if (i === 0) return `M ${pt.x} ${pt.y}`;
-    const prev = arr[i - 1];
-    const cx1 = prev.x + (pt.x - prev.x) / 2;
-    const cy1 = prev.y;
-    const cx2 = prev.x + (pt.x - prev.x) / 2;
-    const cy2 = pt.y;
-    return `${acc} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${pt.x} ${pt.y}`;
-  }, '');
-
-  const memD = buildPath(memPoints);
-  const mitD = buildPath(mitPoints);
-  const procD = buildPath(procPoints);
-
-  const yTicks = [0, Math.round(maxY * 0.5), maxY];
+  const rows = data
+    .map((d) => ({ ...d, total: d.total ?? ((d.mem || 0) + (d.mit || 0) + (d.proc || 0)) }))
+    .sort((a, b) => b.total - a.total);
+  const maxTotal = Math.max(...rows.map((d) => d.total), 1);
+  const showScroll = rows.length > 7;
 
   return (
-    <div style={{ width: '100%', position: 'relative' }}>
-      <svg width="100%" height={height} viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="xMidYMid meet">
-        {/* Horizontal Grid Lines */}
-        {yTicks.map((val, idx) => {
-          const yPos = margin.top + plotH - (val / maxY) * plotH;
-          return (
-            <g key={idx}>
-              <line x1={margin.left} y1={yPos} x2={width - margin.right} y2={yPos} stroke="#F1F5F9" strokeWidth="1.5" />
-              <text x={margin.left - 10} y={yPos + 4} textAnchor="end" fontSize="10" fontWeight="700" fill="#94A3B8">
-                {val}
-              </text>
-            </g>
-          );
-        })}
-
-        {/* Vertical Guide Lines & Batch Code Labels */}
-        {memPoints.map((pt, i) => (
-          <g key={i}>
-            <line x1={pt.x} y1={margin.top} x2={pt.x} y2={margin.top + plotH} stroke="#F8FAFC" strokeWidth="1.5" />
-            <text x={pt.x} y={margin.top + plotH + 18} textAnchor="middle" fontSize="10.5" fontWeight="700" fill="#475569">
-              #{pt.code}
-            </text>
-          </g>
-        ))}
-
-        {/* Membership Trend Line (Royal Blue) */}
-        <path d={memD} fill="none" stroke="#2563EB" strokeWidth="2.5" strokeLinecap="round" />
-
-        {/* MIT Trend Line (Vivid Amber Gold) */}
-        <path d={mitD} fill="none" stroke="#F59E0B" strokeWidth="2.5" strokeLinecap="round" />
-
-        {/* Proclaimers Trend Line (Purple) */}
-        <path d={procD} fill="none" stroke="#8B5CF6" strokeWidth="2.5" strokeLinecap="round" />
-
-        {/* Clean Point Nodes with Hover Trigger */}
-        {memPoints.map((pt, i) => (
-          <g
-            key={`mem-${i}`}
-            onMouseEnter={() => setActivePoint({ label: 'Membership', color: '#2563EB', ...pt })}
-            onMouseLeave={() => setActivePoint(null)}
-            style={{ cursor: 'pointer' }}
-          >
-            <circle cx={pt.x} cy={pt.y} r="4" fill="#FFFFFF" stroke="#2563EB" strokeWidth="2.5" />
-          </g>
-        ))}
-
-        {mitPoints.map((pt, i) => (
-          <g
-            key={`mit-${i}`}
-            onMouseEnter={() => setActivePoint({ label: 'MIT', color: '#F59E0B', ...pt })}
-            onMouseLeave={() => setActivePoint(null)}
-            style={{ cursor: 'pointer' }}
-          >
-            <circle cx={pt.x} cy={pt.y} r="4" fill="#FFFFFF" stroke="#F59E0B" strokeWidth="2.5" />
-          </g>
-        ))}
-
-        {procPoints.map((pt, i) => (
-          <g
-            key={`proc-${i}`}
-            onMouseEnter={() => setActivePoint({ label: 'Proclaimers', color: '#8B5CF6', ...pt })}
-            onMouseLeave={() => setActivePoint(null)}
-            style={{ cursor: 'pointer' }}
-          >
-            <circle cx={pt.x} cy={pt.y} r="4" fill="#FFFFFF" stroke="#8B5CF6" strokeWidth="2.5" />
-          </g>
-        ))}
-      </svg>
-
+    <div style={{ width: '100%' }}>
       {/* Legend */}
-      <div style={{ display: 'flex', gap: 18, justifyContent: 'center', marginTop: 2, fontSize: '0.78rem', fontWeight: 700 }}>
-        <span style={{ color: '#2563EB' }}>● Membership</span>
-        <span style={{ color: '#D97706' }}>● MIT</span>
-        <span style={{ color: '#7C3AED' }}>● Proclaimers</span>
+      <div style={{ display: 'flex', gap: 18, justifyContent: 'center', marginBottom: 16, fontSize: '0.78rem', fontWeight: 700, flexWrap: 'wrap' }}>
+        {SEGMENTS.map((s) => (
+          <span key={s.key} style={{ color: s.color }}>● {s.label}</span>
+        ))}
       </div>
 
-      {/* Modern Hover Tooltip */}
-      {activePoint && (
-        <div style={{
-          position: 'absolute',
-          top: 6,
-          right: 12,
-          background: '#0F172A',
-          color: '#FFFFFF',
-          padding: '5px 12px',
-          borderRadius: 8,
-          fontSize: '0.76rem',
-          fontWeight: 600,
-          boxShadow: '0 8px 20px rgba(0,0,0,0.18)',
-          pointerEvents: 'none',
-          display: 'flex',
-          alignItems: 'center',
-          gap: 8,
-        }}>
-          <span style={{ width: 8, height: 8, borderRadius: '50%', background: activePoint.color }}></span>
-          <span>{activePoint.name} (#{activePoint.code}): <strong>{activePoint.val}</strong> {activePoint.label}</span>
-        </div>
-      )}
+      <div style={{
+        display: 'flex', flexDirection: 'column', gap: 12,
+        maxHeight: showScroll ? 280 : undefined,
+        overflowY: showScroll ? 'auto' : 'visible',
+        paddingRight: showScroll ? 6 : 0,
+      }}>
+        {rows.map((d) => {
+          const total = d.total;
+          const barSegments = SEGMENTS
+            .map((s) => ({ ...s, val: d[s.key] || 0 }))
+            .filter((s) => s.val > 0);
+
+          return (
+            <div key={d.id || d.code} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div
+                title={`${d.name} (#${d.code})`}
+                style={{
+                  width: 96, flexShrink: 0, fontSize: '0.76rem', fontWeight: 700, color: 'var(--navy)',
+                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                }}
+              >
+                {d.name}
+              </div>
+
+              <div style={{ flex: 1, height: 20, borderRadius: 6, background: '#F1F5F9', overflow: 'hidden' }}>
+                {total > 0 && (
+                  <div style={{ width: `${Math.max((total / maxTotal) * 100, 3)}%`, height: '100%', display: 'flex' }}>
+                    {barSegments.map((s, i) => (
+                      <div
+                        key={s.key}
+                        title={`${s.label}: ${s.val}`}
+                        style={{
+                          width: `${(s.val / total) * 100}%`,
+                          height: '100%',
+                          background: s.barColor || s.color,
+                          borderLeft: i > 0 ? '2px solid #F1F5F9' : 'none',
+                        }}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div style={{ width: 36, flexShrink: 0, textAlign: 'right', fontSize: '0.8rem', fontWeight: 800, color: 'var(--navy)' }}>
+                {total}
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

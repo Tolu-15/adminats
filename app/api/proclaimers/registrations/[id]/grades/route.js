@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../../../../lib/supabaseAdmin';
 import { requireAdmin } from '../../../../../../lib/requireAdmin';
+import { canWrite } from '../../../../../../lib/roles';
 import { logAdminAction } from '../../../../../../lib/auditLog';
 
 /**
@@ -49,6 +50,7 @@ export async function GET(request, { params }) {
 export async function PATCH(request, { params }) {
   const user = await requireAdmin(request);
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!canWrite(user)) return NextResponse.json({ error: 'Forbidden: this account is read-only.' }, { status: 403 });
 
   const { id } = await params;
   let body;

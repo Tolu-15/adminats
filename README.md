@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # ATS  Registration & Administration App
 
 A full-featured membership registration, grading, and administrative management platform built with Next.js, Supabase, Cloudflare R2, and Cloudflare Turnstile.
@@ -32,7 +31,8 @@ Create a `.env.local` file in the root directory:
 | `TURNSTILE_SECRET_KEY` | **Yes** | Server-only | Cloudflare Turnstile secret key for server-side verification |
 | `NEXT_PUBLIC_ENABLE_TURNSTILE_LOCAL` | Optional | Client/Server | Set to `true` to force Turnstile captcha evaluation in local dev |
 | `NEXT_PUBLIC_BASE_URL` | Optional | Client/Server | Public application URL (e.g. `https://membership.atscentre.org`) |
-| 
+
+---
 
 ## 2. Database Setup & Migrations
 
@@ -86,7 +86,7 @@ npm start
 ## 4. Security Architecture & Controls
 
 - **Edge Middleware (`middleware.js`)**: Evaluates incoming requests to `/admin/*` at the edge; unauthenticated sessions are immediately redirected to `/admin/login?next=...` before any admin assets are served.
-- **Role Guard Fallbacks**: `useAdminGuard` defaults unassigned users to `'viewer'` (least privileged access), never `'admin'`.
+- **Role Enforcement**: Roles come from `lib/roles.js` (`app_metadata.role`, falling back to `user_metadata.role`; default `'viewer'`). Only `admin` and `superadmin` may call mutating API routes (`POST`/`PATCH`/`DELETE`); viewers receive `403`. The UI guard (`useAdminGuard`) uses the same helper.
 - **Atomic Multi-Step Writes**: Registration operations use transactional Postgres functions to prevent partial failure orphans.
 - **Server-Side Validation**: All incoming biodata is strictly validated via `lib/validators.js` (email RFC format, E.164 phone formats, and maximum field length constraints).
 - **PostgREST Injection Protection**: User search queries are sanitized before being interpolated into PostgREST `.or()` filters.
@@ -103,6 +103,3 @@ npm start
 2. Configure the environment variables from the table above in **Project Settings → Environment Variables**.
 3. Set `NEXT_PUBLIC_BASE_URL` to your production domain.
 4. Deploy the main branch.
-=======
-
->>>>>>> 1b5d22eca1dda36064004e326f64eae7c24b8da6

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../lib/supabaseAdmin';
 import { requireAdmin } from '../../../lib/requireAdmin';
+import { canWrite } from '../../../lib/roles';
 import { logAdminAction } from '../../../lib/auditLog';
 import {
   isActiveBatchStudent,
@@ -116,6 +117,7 @@ export async function GET(request) {
 export async function POST(request) {
   const user = await requireAdmin(request);
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!canWrite(user)) return NextResponse.json({ error: 'Forbidden: this account is read-only.' }, { status: 403 });
 
   const body = await request.json();
   if (!body.batch_name) {

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../../lib/supabaseAdmin';
 import { requireAdmin } from '../../../../lib/requireAdmin';
+import { canWrite } from '../../../../lib/roles';
 import { logAdminAction } from '../../../../lib/auditLog';
 
 const CHUNK_SIZE = 100;
@@ -124,6 +125,7 @@ async function deleteLegacyProgrammeRows(tableName, gradesTableName, gradeColumn
 export async function PATCH(request, { params }) {
   const user = await requireAdmin(request);
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!canWrite(user)) return NextResponse.json({ error: 'Forbidden: this account is read-only.' }, { status: 403 });
 
   const resolvedParams = await params;
   const id = resolvedParams?.id;
@@ -180,6 +182,7 @@ export async function PATCH(request, { params }) {
 export async function DELETE(request, { params }) {
   const user = await requireAdmin(request);
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!canWrite(user)) return NextResponse.json({ error: 'Forbidden: this account is read-only.' }, { status: 403 });
 
   const resolvedParams = await params;
   const id = resolvedParams?.id;

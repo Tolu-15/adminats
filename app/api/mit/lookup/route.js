@@ -7,6 +7,7 @@ import {
 } from '../../../../lib/studentVerification';
 
 export async function GET(request) {
+  const { searchParams } = new URL(request.url);
   const rawQ = (searchParams.get('q') || '').trim();
   const dateOfBirth = (searchParams.get('date_of_birth') || '').trim();
   if (!rawQ || !dateOfBirth) return NextResponse.json(dateOfBirthRequiredResponse(), { status: 400 });

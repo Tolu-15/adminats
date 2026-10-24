@@ -39,3 +39,6 @@ Thumbs.db
 *.csv
 generate_pptx.py
 
+
+# Local database backups (contain student PII)
+backups/

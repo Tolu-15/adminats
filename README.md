@@ -56,6 +56,24 @@ All SQL migrations are idempotent and can be executed via the **Supabase SQL Edi
 
 ---
 
+### Scheduled jobs (GitHub Actions)
+
+| Workflow | Schedule (UTC) | Purpose |
+|---|---|---|
+| `.github/workflows/supabase-keepalive.yml` | Every 3 days, 06:00 | Sends a small REST request to the database so a free-tier Supabase project is never paused for inactivity |
+| `.github/workflows/db-backup.yml` | Sundays 03:00 | Runs `scripts/backup.mjs`, exporting every table to gzipped JSON and saving it as a workflow artifact for 90 days |
+
+**Setup:** in the GitHub repo go to *Settings → Secrets and variables → Actions* and add `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`. Then run each workflow once from the *Actions* tab (*Run workflow*) to confirm it passes. Download backups from a run's *Artifacts* section.
+
+Notes:
+- Backups contain student personal data. Keep this repository **private**.
+- Backups are row exports only (no schema, no Supabase auth users). Keep `schema.sql` and `supabase/*.sql` safe separately.
+- To restore, gunzip a backup and insert each table's rows back, parents first (`batches`, `students`, `registrations`, then the rest).
+- Run a backup locally with `SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... node scripts/backup.mjs` (needs Node 22, or Node 20 with `--experimental-websocket`). Output goes to the git-ignored `backups/` folder.
+- GitHub pauses scheduled workflows on public repos after 60 days without repository activity; re-enable them from the Actions tab if that happens.
+
+---
+
 ## 3. Local Development & Scripts
 
 ### Prerequisites

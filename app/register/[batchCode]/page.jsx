@@ -15,7 +15,7 @@ const shouldUseTurnstile = Boolean(turnstileSiteKey)
 const initialMemForm = {
   surname: '', first_name: '', middle_name: '', email: '', phone: '',
   date_of_birth: '', gender: '', is_first_timer: 'No', home_address: '', next_of_kin: '',
-  next_of_kin_relationship: '', next_of_kin_phone: '', state_of_origin: '', local_government: '', nationality: '', education: '',
+  next_of_kin_relationship: '', next_of_kin_phone: '', state_of_origin: '', local_government: '', nationality: '', country_of_residence: '', education: '',
   born_again: '', born_again_details: '', baptized_water: '', baptized_water_details: '',
   baptized_holy_spirit: '', baptized_holy_spirit_details: '', church_join_date: '', challenges: '',
 };

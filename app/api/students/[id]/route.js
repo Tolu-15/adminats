@@ -165,7 +165,7 @@ export async function PATCH(request, { params }) {
   // 1. Core student fields
   const studentFields = [
     'card_number', 'surname', 'first_name', 'middle_name', 'gender', 'date_of_birth',
-    'email', 'phone', 'home_address', 'state_of_origin', 'local_government', 'nationality',
+    'email', 'phone', 'home_address', 'state_of_origin', 'local_government', 'nationality', 'country_of_residence',
     'education', 'challenges', 'church_join_date', 'photo_url',
   ];
 

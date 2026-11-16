@@ -323,12 +323,14 @@ export default function StudentProfile() {
   // Detect retake from comments field
   const isMemRetake = (memGrades?.comments || '').toUpperCase().startsWith('RETAKE');
 
-  const mitGrades = mitReg?.mit_grades?.[0] || {};
+  // Department belongs to the programme registration, while the remaining values
+  // belong to the grades record. Present them as one editable form.
+  const mitGrades = { ...(mitReg?.mit_grades?.[0] || {}), department: mitReg?.department || '' };
   const mitStatus = (mitGrades?.status || '').toString().trim().toUpperCase();
   const mitPassed = mitStatus === 'PASSED';
   const isMitRetake = (mitGrades?.comments || '').toUpperCase().startsWith('RETAKE');
 
-  const procGrades = procReg?.proclaimers_grades?.[0] || {};
+  const procGrades = { ...(procReg?.proclaimers_grades?.[0] || {}), department: procReg?.department || '' };
   const procStatus = (procGrades?.status || '').toString().trim().toUpperCase();
 
   const fullName = [student.first_name, student.middle_name, student.surname].filter(Boolean).join(' ');

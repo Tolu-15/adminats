@@ -85,6 +85,7 @@ export async function POST(request) {
       local_government: body.local_government || null,
       state_of_origin: body.state_of_origin || null,
       nationality: body.nationality || null,
+      country_of_residence: body.country_of_residence || null,
       education: body.education || null,
       church_join_date: sanitizeDate(body.church_join_date),
       challenges: body.challenges || null,
@@ -117,7 +118,16 @@ export async function POST(request) {
     });
 
     if (!rpcError && rpcStudent) {
-      return NextResponse.json({ student: rpcStudent });
+      // Keep this field working with older deployments of create_student_full
+      // whose SQL function predates country_of_residence.
+      if (studentRecord.country_of_residence) {
+        const { error: countryError } = await supabaseAdmin
+          .from('students')
+          .update({ country_of_residence: studentRecord.country_of_residence })
+          .eq('id', rpcStudent.id);
+        if (countryError) throw countryError;
+      }
+      return NextResponse.json({ student: { ...rpcStudent, country_of_residence: studentRecord.country_of_residence } });
     }
 
     // If error is anything other than missing function (PGRST202), rethrow

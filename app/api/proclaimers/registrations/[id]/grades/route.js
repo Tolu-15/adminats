@@ -75,7 +75,7 @@ export async function PATCH(request, { params }) {
   const allowed = [
     'class', 'trainer', 'cih', 'attendance', 'assessment', 'presentation',
     'project', 'seminar_attendance', 'final_grades', 'mountain_of_influence',
-    'first_timer', 'first_timer_date', 'status', 'comments',
+    'department', 'first_timer', 'first_timer_date', 'status', 'comments',
   ];
 
   const payload = {};
@@ -119,10 +119,11 @@ export async function PATCH(request, { params }) {
       actuallyModifiedFields.push('department');
       changes.department = { from: oldDept, to: newDept };
     }
-    await supabaseAdmin
+    const { error: departmentError } = await supabaseAdmin
       .from('registrations')
       .update({ department: body.department })
       .eq('id', id);
+    if (departmentError) return NextResponse.json({ error: departmentError.message }, { status: 500 });
   }
 
   const { data: updatedGrade } = await supabaseAdmin
@@ -167,7 +168,7 @@ export async function PATCH(request, { params }) {
   });
 
   return NextResponse.json(
-    { success: true, grades: updatedGrade },
+    { success: true, grades: { ...updatedGrade, department: body.department ?? reg?.department ?? null } },
     { headers: { 'Cache-Control': 'no-store' } }
   );
 }

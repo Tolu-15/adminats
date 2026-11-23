@@ -1,10 +1,30 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { copyToClipboard } from '../lib/copyToClipboard';
 
 export default function QRCodeModal({ batch, baseUrl, onClose }) {
   const [copied, setCopied] = useState(false);
+  const [busy, setBusy] = useState('');
+  const [message, setMessage] = useState(null);
+  const closeRef = useRef(null);
+  const dialogRef = useRef(null);
+  useEffect(() => {
+    const previousFocus = document.activeElement;
+    closeRef.current?.focus();
+    function onKeyDown(event) {
+      if (event.key === 'Escape') onClose();
+      if (event.key === 'Tab') {
+        const controls = dialogRef.current?.querySelectorAll('button:not(:disabled), a[href], input, select, textarea, [tabindex="0"]');
+        if (!controls?.length) return;
+        const first = controls[0], last = controls[controls.length - 1];
+        if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+      }
+    }
+    window.addEventListener('keydown', onKeyDown);
+    return () => { window.removeEventListener('keydown', onKeyDown); previousFocus?.focus(); };
+  }, [onClose]);
 
   if (!batch) return null;
 
@@ -19,26 +39,28 @@ export default function QRCodeModal({ batch, baseUrl, onClose }) {
   const qrApiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(fullUrl)}`;
 
   async function handleCopy() {
-    const success = await copyToClipboard(fullUrl);
-    if (success) {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    }
+    if (busy) return;
+    setBusy('copy'); setMessage(null);
+    try {
+      const success = await copyToClipboard(fullUrl);
+      if (!success) throw new Error('Unable to copy automatically. Select and copy the registration link below.');
+      setCopied(true); setMessage({ type: 'success', text: 'Registration link copied.' });
+    } catch (error) { setMessage({ type: 'error', text: error.message || 'Unable to copy link.' }); }
+    finally { setBusy(''); }
   }
 
   async function handleDownload() {
+    if (busy) return;
+    setBusy('download'); setMessage(null);
     try {
       const res = await fetch(qrApiUrl);
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `QR_${batch.batch_code || 'Batch'}_Registration.png`;
-      a.click();
-      URL.revokeObjectURL(url);
-    } catch {
-      window.open(qrApiUrl, '_blank');
-    }
+      if (!res.ok) throw new Error('Unable to download QR code. Please try again.');
+      const blob = await res.blob(); const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = `QR_${batch.batch_code || 'Batch'}_Registration.png`; a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setMessage({ type: 'success', text: 'QR code download started.' });
+    } catch (error) { setMessage({ type: 'error', text: error.message || 'Unable to download QR code. Please try again.' }); }
+    finally { setBusy(''); }
   }
 
   return (
@@ -48,21 +70,24 @@ export default function QRCodeModal({ batch, baseUrl, onClose }) {
       display: 'flex', alignItems: 'center', justifyContent: 'center',
       padding: 16,
     }}>
-      <div className="card" style={{
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="qr-title" className="card" style={{
         maxWidth: 420, width: '100%', padding: 28,
         textAlign: 'center', position: 'relative',
         boxShadow: '0 20px 40px rgba(0,0,0,0.25)', borderRadius: 16,
       }}>
         {/* Close Button */}
         <button
+          ref={closeRef}
+          type="button"
+          aria-label="Close QR code"
           onClick={onClose}
           style={{
             position: 'absolute', top: 14, right: 16,
-            background: 'none', border: 'none', fontSize: '1.2rem',
+            background: 'none', border: 'none', fontSize: '0.8rem', padding: 6,
             cursor: 'pointer', color: 'var(--muted)',
           }}
         >
-          ✕
+          Close
         </button>
 
         {/* Header */}
@@ -70,7 +95,7 @@ export default function QRCodeModal({ batch, baseUrl, onClose }) {
           <span className="badge badge-gold" style={{ fontSize: '0.75rem', marginBottom: 6, display: 'inline-block' }}>
             {pType} PROGRAMME
           </span>
-          <h2 style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--navy)', margin: '4px 0 2px' }}>
+          <h2 id="qr-title" style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--navy)', margin: '4px 0 2px' }}>
             {batch.batch_name}
           </h2>
         </div>
@@ -90,7 +115,7 @@ export default function QRCodeModal({ batch, baseUrl, onClose }) {
 
         {/* Scan instruction */}
         <p className="muted text-sm" style={{ marginBottom: 16, fontSize: '0.82rem' }}>
-          📱 Scan with any camera to display & open the registration link
+           Scan with any camera to display & open the registration link
         </p>
 
         {/* Registration Link Text box */}
@@ -103,13 +128,14 @@ export default function QRCodeModal({ batch, baseUrl, onClose }) {
           {fullUrl}
         </div>
 
+        {message && <div className={message.type === 'error' ? 'error-box' : 'success-box'} role={message.type === 'error' ? 'alert' : 'status'}>{message.text}</div>}
         {/* Action Buttons */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-          <button className="btn btn-outline" onClick={handleDownload} style={{ width: '100%', fontSize: '0.85rem' }}>
-            📥 Save QR Code
+          <button className="btn btn-outline" onClick={handleDownload} disabled={!!busy} style={{ width: '100%', fontSize: '0.85rem' }}>
+             {busy === 'download' ? 'Downloading...' : 'Save QR Code'}
           </button>
-          <button className="btn btn-primary" onClick={handleCopy} style={{ width: '100%', fontSize: '0.85rem' }}>
-            {copied ? '✓ Copied!' : '📋 Copy Link'}
+          <button className="btn btn-primary" onClick={handleCopy} disabled={!!busy} style={{ width: '100%', fontSize: '0.85rem' }}>
+            {busy === 'copy' ? 'Copying...' : copied ? 'Copied' : 'Copy Link'}
           </button>
         </div>
       </div>

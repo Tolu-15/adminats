@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { startProgrammeAttempt } from '../../../../lib/retakeHistory';
 import { supabaseAdmin } from '../../../../lib/supabaseAdmin';
 import {
   dateOfBirthMatches,
@@ -66,7 +67,7 @@ export async function POST(request) {
   // 3. Get existing membership registration & grade
   let { data: memReg } = await supabaseAdmin
     .from('registrations')
-    .select('id')
+    .select('id, batch_id')
     .eq('student_id', student.id)
     .eq('stage', 'membership')
     .maybeSingle();
@@ -88,55 +89,10 @@ export async function POST(request) {
     }, { status: 409 });
   }
 
-  // 4. Update student's current batch_id
-  await supabaseAdmin
-    .from('students')
-    .update({ batch_id })
-    .eq('id', student.id);
+  if (memReg?.batch_id === batch_id) return NextResponse.json({ error: 'This student is already registered in this batch. No grades were reset.' }, { status: 409 });
 
-  // 5. Upsert registration for Membership stage
-  if (!memReg) {
-    const { data: newReg } = await supabaseAdmin
-      .from('registrations')
-      .insert({
-        student_id: student.id,
-        batch_id,
-        stage: 'membership',
-      })
-      .select('id')
-      .single();
-    memReg = newReg;
-  } else {
-    await supabaseAdmin
-      .from('registrations')
-      .update({ batch_id })
-      .eq('id', memReg.id);
-  }
-
-  // 6. Reset membership grade record for fresh attempt
-  const gradePayload = {
-    registration_id: memReg.id,
-    class: null,
-    trainer: null,
-    attendance: null,
-    test: null,
-    assignment: null,
-    assessment: null,
-    presentation: null,
-    exam: null,
-    final_grades: null,
-    water_baptism: null,
-    holy_spirit_baptism: null,
-    portal: null,
-    status: null,
-    comments: `RETAKE — Previous batch: ${student.batch_id || 'N/A'}. Status was: ${prevStatus || 'NOT GRADED'}`,
-    covenant_deed: null,
-    updated_at: new Date().toISOString(),
-  };
-
-  await supabaseAdmin
-    .from('membership_grades')
-    .upsert(gradePayload, { onConflict: 'registration_id' });
+  const { error: attemptError } = await startProgrammeAttempt({ studentId: student.id, batchId: batch_id, stage: 'membership', previous: memReg });
+  if (attemptError) return NextResponse.json({ error: attemptError.message }, { status: attemptError.code === 'MIGRATION_REQUIRED' ? 503 : 409 });
 
   return NextResponse.json({
     success: true,

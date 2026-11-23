@@ -121,3 +121,15 @@ npm start
 2. Configure the environment variables from the table above in **Project Settings → Environment Variables**.
 3. Set `NEXT_PUBLIC_BASE_URL` to your production domain.
 4. Deploy the main branch.
+
+
+## Duplicate review, bulk grading, and preserved retakes
+
+Apply supabase/retake_history_and_bulk_grading.sql in the Supabase SQL editor **before deploying the new programme-registration routes**. The migration adds a private archive, an atomic programme-registration function, and an atomic bulk-grade function. It does not rewrite current registrations or existing grades. Database execution still needs to be verified in your Supabase project.
+
+- **Duplicate review:** Add student warns on normalized email, phone, and incoming student-ID matches, including trashed records. Admins may explicitly confirm a separate person for shared contact details; records are never merged. Public registration shows a generic warning without disclosing matching student details. Imported existing students require a stable ATS ID or card number; ambiguous contact/name matches are skipped with warnings.
+- **Bulk grading:** Open a batch and choose Enter class grades. Select programme/class, edit cells, review the before/after list, then Confirm and save. Only edited cells change. Scores are whole non-negative integers; final grades are limited to 0–100. Other component maxima are not invented. Blank edited cells clear values. Up to 250 students save in one transaction; stale grades/attempts abort the whole save.
+- **Retakes:** A batch move archives the previous programme, batch name/code, dates, department, and complete grade record. The new attempt starts with blank grades. Repeated submissions into the same batch cannot reset grades. Student profiles show current and archived attempts. Retakes pause if the archive trigger is unavailable.
+- Previously overwritten attempts cannot be recovered by this migration. Restore those only from a verified older backup if one exists.
+
+After migration, verify a test student's failed Membership attempt, retake it into a test batch, confirm the archived grades and blank new attempt, and confirm a repeat submission is rejected. For bulk grading, check a successful save, an invalid-score rejection, and a conflicting edit; failed saves should leave all other edited students unchanged.

@@ -109,7 +109,7 @@ export default function GradeEditForm({ studentId, initialGrades = {}, onSaved }
       </div>
 
       <button className="btn btn-primary" type="submit" disabled={saving}>
-        {saving ? 'Saving…' : '💾 Save Grades'}
+        {saving ? 'Saving…' : ' Save Grades'}
       </button>
     </form>
   );

@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { startProgrammeAttempt } from '../../../../lib/retakeHistory';
 import { supabaseAdmin } from '../../../../lib/supabaseAdmin';
 import {
   dateOfBirthMatches,
@@ -104,28 +105,15 @@ export async function POST(request) {
     return NextResponse.json({ error: 'This student is already registered for this Proclaimers batch.' }, { status: 409 });
   }
 
-  // 6. Create Proclaimers registration in registrations table
-  const { data: reg, error: regErr } = await supabaseAdmin
-    .from('registrations')
-    .upsert({
-      student_id: membership_student_id,
-      batch_id,
-      stage: 'proclaimers',
-      department: deptTrimmed,
-    }, { onConflict: 'student_id,stage' })
-    .select()
-    .single();
+  const { data: prior, error: priorError } = await supabaseAdmin.from('registrations').select('id, batch_id').eq('student_id', membership_student_id).eq('stage', 'proclaimers').maybeSingle();
+  if (priorError) return NextResponse.json({ error: priorError.message }, { status: 500 });
 
-  if (regErr) return NextResponse.json({ error: regErr.message }, { status: 500 });
-
-  // 7. Create initial proclaimers_grades record
-  await supabaseAdmin.from('proclaimers_grades').upsert({
-    registration_id: reg.id,
-  }, { onConflict: 'registration_id' });
+  const { data: registrationId, error: attemptError } = await startProgrammeAttempt({ studentId: membership_student_id, batchId: batch_id, stage: 'proclaimers', previous: prior, department: deptTrimmed });
+  if (attemptError) return NextResponse.json({ error: attemptError.message }, { status: attemptError.code === 'MIGRATION_REQUIRED' ? 503 : 409 });
 
   return NextResponse.json({
     success: true,
     message: `${student.first_name} ${student.surname} has been registered for ${batch.batch_name} (Proclaimers).`,
-    registration_id: reg.id,
+    registration_id: registrationId,
   });
 }

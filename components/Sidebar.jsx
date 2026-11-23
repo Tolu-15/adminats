@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { supabase } from '../lib/supabaseClient';
@@ -16,6 +16,15 @@ const NavItem = ({ href, icon, label, active, onClick }) => (
 export default function Sidebar({ onNavigate }) {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const menuButtonRef = useRef(null);
+  useEffect(() => {
+    if (!mobileOpen) return;
+    function onKeyDown(event) {
+      if (event.key === 'Escape') { setMobileOpen(false); menuButtonRef.current?.focus(); }
+    }
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [mobileOpen]);
 
   async function signOut(e) {
     if (onNavigate && onNavigate(e) === false) return;
@@ -38,8 +47,8 @@ export default function Sidebar({ onNavigate }) {
       {/* Mobile Top Header */}
       <div className="mobile-admin-header">
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <button className="mobile-menu-btn" onClick={toggleMobile} aria-label="Toggle Navigation">
-            {mobileOpen ? '✕' : '☰ Menu'}
+          <button ref={menuButtonRef} className="mobile-menu-btn" onClick={toggleMobile} aria-label={mobileOpen ? "Close navigation" : "Open navigation"} aria-expanded={mobileOpen} aria-controls="admin-sidebar">
+            {mobileOpen ? 'Close' : 'Menu'}
           </button>
           <Logo size={36} style={{ borderRadius: '8px' }} />
           <strong style={{ color: '#fff', fontSize: '0.92rem' }}>ATS Admin</strong>
@@ -52,14 +61,14 @@ export default function Sidebar({ onNavigate }) {
       )}
 
       {/* Sidebar drawer */}
-      <aside className={`sidebar ${mobileOpen ? 'mobile-open' : ''}`}>
+      <aside id="admin-sidebar" aria-label="Admin navigation" className={`sidebar ${mobileOpen ? 'mobile-open' : ''}`}>
         <div className="sidebar-brand">
           <Logo size={56} style={{ borderRadius: '10px', flexShrink: 0 }} />
           <div className="sidebar-brand-text">
             <strong>ATS Admin</strong>
             <span>ATS Records Portal</span>
           </div>
-          <button className="mobile-close-btn" onClick={closeMobile}>✕</button>
+          <button type="button" className="mobile-close-btn" onClick={() => { closeMobile(); menuButtonRef.current?.focus(); }} aria-label="Close navigation">Close</button>
         </div>
 
         <div className="sidebar-section-label">Main</div>

@@ -175,6 +175,7 @@ export function CleanGrowthGraph({ data = [] }) {
           const barSegments = SEGMENTS
             .map((s) => ({ ...s, val: d[s.key] || 0 }))
             .filter((s) => s.val > 0);
+          const enrolmentTotal = barSegments.reduce((sum, segment) => sum + segment.val, 0);
 
           return (
             <div key={d.id || d.code} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -196,7 +197,7 @@ export function CleanGrowthGraph({ data = [] }) {
                         key={s.key}
                         title={`${s.label}: ${s.val}`}
                         style={{
-                          width: `${(s.val / total) * 100}%`,
+                          width: `${(s.val / enrolmentTotal) * 100}%`,
                           height: '100%',
                           background: s.barColor || s.color,
                           borderLeft: i > 0 ? '2px solid #F1F5F9' : 'none',
@@ -222,8 +223,8 @@ export function CleanGrowthGraph({ data = [] }) {
  * 2. CLEAN DEMOGRAPHICS GRAPH (Gender & Membership First Timers Bars)
  * Handles 0-values gracefully with an empty state.
  */
-export function CleanDemographicsGraph({ maleCount = 0, femaleCount = 0, firstTimerCount = 0, membershipTotal = 0 }) {
-  const regularCount = Math.max(0, membershipTotal - firstTimerCount);
+export function CleanDemographicsGraph({ maleCount = 0, femaleCount = 0, firstTimerCount = 0, membershipTotal = 0, totalStudents = membershipTotal }) {
+  const regularCount = Math.max(0, totalStudents - firstTimerCount);
   const totalDemo = maleCount + femaleCount + firstTimerCount + regularCount;
 
   // Graceful empty state
@@ -347,7 +348,7 @@ export function CleanDemographicsGraph({ maleCount = 0, femaleCount = 0, firstTi
       <div style={{ display: 'flex', gap: 14, justifyContent: 'center', marginTop: 2, fontSize: '0.78rem', fontWeight: 700, flexWrap: 'wrap' }}>
         <span style={{ color: '#2563EB' }}>● Male ({maleCount})</span>
         <span style={{ color: '#E11D48' }}>● Female ({femaleCount})</span>
-        <span style={{ color: '#D97706' }}>⭐ 1st Timers ({firstTimerCount})</span>
+        <span style={{ color: '#D97706' }}> 1st Timers ({firstTimerCount})</span>
       </div>
     </div>
   );

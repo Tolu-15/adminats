@@ -4,8 +4,7 @@ import { requireAdmin } from '../../../lib/requireAdmin';
 import { canWrite } from '../../../lib/roles';
 import { logAdminAction } from '../../../lib/auditLog';
 import {
-  isActiveBatchStudent,
-  isActiveRegistration,
+  buildBatchCounts,
 } from '../../../lib/activeAnalytics';
 
 import { fetchAllPaginated } from '../../../lib/supabasePagination';
@@ -14,30 +13,7 @@ export async function GET(request) {
   const user = await requireAdmin(request);
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  let { data, error } = await supabaseAdmin
-    .from('batches')
-    .select('*, students(count), mit_registrations(count), proclaimers_registrations(count)')
-    .order('created_at', { ascending: false });
-
-  if (error) {
-    // If proclaimers_registrations relation doesn't exist yet in DB, fallback to selecting without it
-    const fallback = await supabaseAdmin
-      .from('batches')
-      .select('*, students(count), mit_registrations(count)')
-      .order('created_at', { ascending: false });
-
-    if (fallback.error) {
-      const fallbackBasic = await supabaseAdmin
-        .from('batches')
-        .select('*')
-        .order('created_at', { ascending: false });
-      data = fallbackBasic.data;
-      error = fallbackBasic.error;
-    } else {
-      data = fallback.data;
-      error = fallback.error;
-    }
-  }
+  const { data, error } = await supabaseAdmin.from('batches').select('*').order('created_at', { ascending: false });
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
@@ -50,64 +26,24 @@ export async function GET(request) {
       fetchAllPaginated(() =>
         supabaseAdmin
           .from('registrations')
-          .select('batch_id, stage, student_id, student:students(id, batch_id, deleted_at)')
+          .select('id, batch_id, stage, student_id, student:students(id, batch_id, deleted_at)')
+          .order('id')
           .in('batch_id', batchIds)
       ),
       fetchAllPaginated(() =>
         supabaseAdmin
           .from('students')
           .select('id, batch_id, deleted_at')
+          .order('id')
           .in('batch_id', batchIds)
           .is('deleted_at', null)
       ),
     ]);
 
-    const activeBatchIdSet = new Set(batchIds);
-
-    // STRICT: Only count registrations where the student is NOT soft-deleted
-    // and neither registration batch nor student's home batch is in trash
-    const validRegs = (rawRegs || []).filter((reg) => isActiveRegistration(reg, activeBatchIdSet));
-    const directStudents = (rawDirectStudents || []).filter((s) => isActiveBatchStudent(s, activeBatchIdSet));
-
-    const countsByBatch = new Map();
-    const registeredStudentSetByBatch = new Map();
-
-    validRegs.forEach((reg) => {
-      const bId = reg.batch_id;
-      const current = countsByBatch.get(bId) || { membership: 0, mit: 0, proclaimers: 0, total: 0 };
-      if (reg.stage === 'membership') current.membership += 1;
-      if (reg.stage === 'mit') current.mit += 1;
-      if (reg.stage === 'proclaimers') current.proclaimers += 1;
-      countsByBatch.set(bId, current);
-
-      if (!registeredStudentSetByBatch.has(bId)) {
-        registeredStudentSetByBatch.set(bId, new Set());
-      }
-      const sId = reg.student_id || reg.student?.id;
-      if (sId) {
-        registeredStudentSetByBatch.get(bId).add(sId);
-      }
-    });
-
-    // Add direct students who are not in trash and not already in registrations
-    directStudents.forEach((s) => {
-      const bId = s.batch_id;
-      const regSet = registeredStudentSetByBatch.get(bId) || new Set();
-      if (!regSet.has(s.id)) {
-        const current = countsByBatch.get(bId) || { membership: 0, mit: 0, proclaimers: 0, total: 0 };
-        current.membership += 1;
-        countsByBatch.set(bId, current);
-        regSet.add(s.id);
-        registeredStudentSetByBatch.set(bId, regSet);
-      }
-    });
-
-    activeBatches.forEach((batch) => {
-      const counts = countsByBatch.get(batch.id) || { membership: 0, mit: 0, proclaimers: 0, total: 0 };
-      const uniqueCount = (registeredStudentSetByBatch.get(batch.id) || new Set()).size;
-      counts.total = uniqueCount;
-      batch.registration_counts = counts;
-      batch.active_student_count = uniqueCount;
+    const countsByBatch = buildBatchCounts(activeBatches, rawRegs || [], rawDirectStudents || []);
+    activeBatches.forEach(batch => {
+      batch.registration_counts = countsByBatch.get(batch.id);
+      batch.active_student_count = batch.registration_counts.total;
     });
   }
 

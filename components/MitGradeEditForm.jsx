@@ -117,11 +117,11 @@ export default function MitGradeEditForm({ registrationId, initialGrades = {}, s
               <>
                 <button className="btn btn-outline btn-sm" onClick={cancelEditing}>Cancel</button>
                 <button className="btn btn-primary btn-sm" onClick={save} disabled={saving}>
-                  {saving ? 'Saving…' : '💾 Save'}
+                  {saving ? 'Saving…' : ' Save'}
                 </button>
               </>
             ) : (
-              <button className="btn btn-outline btn-sm" onClick={startEditing}>✏️ Edit MIT Grades</button>
+              <button className="btn btn-outline btn-sm" onClick={startEditing}> Edit MIT Grades</button>
             )
           )}
         </div>

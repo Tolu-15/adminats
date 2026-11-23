@@ -42,3 +42,6 @@ generate_pptx.py
 
 # Local database backups (contain student PII)
 backups/
+
+# Versioned ATS workflow migration (schema only; no student data)
+!supabase/retake_history_and_bulk_grading.sql

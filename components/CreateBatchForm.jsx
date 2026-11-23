@@ -1,6 +1,6 @@
 export default function CreateBatchForm({
   batchName, setBatchName,
-  onSubmit, error,
+  onSubmit, error, saving = false,
 }) {
   return (
     <div className="card" style={{ marginBottom: 24 }}>
@@ -12,19 +12,21 @@ export default function CreateBatchForm({
       )}
       <form onSubmit={onSubmit}>
         <div className="field" style={{ marginBottom: 16 }}>
-          <label style={{ fontWeight: 600, color: 'var(--navy)' }}>Batch Name *</label>
+          <label htmlFor="create-batch-name" style={{ fontWeight: 600, color: 'var(--navy)' }}>Batch Name *</label>
           <input
+            id="create-batch-name"
             type="text"
             placeholder="e.g. Batch 056"
             value={batchName}
             onChange={(e) => setBatchName(e.target.value)}
+            disabled={saving}
             required
             autoFocus
           />
         </div>
 
-        <button className="btn btn-primary" style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-          <i className="fa-solid fa-plus"></i> Create Batch &amp; Generate Link
+        <button disabled={saving} className="btn btn-primary" style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+          <i className="fa-solid fa-plus"></i> {saving ? 'Creating batch...' : 'Create Batch & Generate Link'}
         </button>
       </form>
     </div>

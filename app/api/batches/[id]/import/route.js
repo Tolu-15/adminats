@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../../../lib/supabaseAdmin';
+import { duplicateReasons } from '../../../../../lib/duplicateStudents';
+import { fetchAllPaginated } from '../../../../../lib/supabasePagination';
 import ExcelJS from 'exceljs';
 import { requireAdmin } from '../../../../../lib/requireAdmin';
 import { canWrite } from '../../../../../lib/roles';
@@ -341,16 +343,25 @@ export async function POST(request, { params }) {
 
   // 1. FAST PRE-FETCH FOR CACHING
   const [studentsRes, regsRes] = await Promise.all([
-    // Trashed students must never suppress a new import into an active batch.
-    // They remain in the trash until explicitly restored there.
-    supabaseAdmin.from('students').select('id, student_unique_id, card_number, email, surname, first_name, middle_name, batch_id, phone, home_address, local_government, country_of_residence, next_of_kin, next_of_kin_phone, next_of_kin_relationship').is('deleted_at', null),
-    supabaseAdmin.from('registrations').select('id, student_id, batch_id, stage, department').eq('batch_id', batchId),
+    // Include trashed contacts in duplicate warnings, but never update or restore them automatically.
+    fetchAllPaginated(() => supabaseAdmin.from('students').select('id, student_unique_id, card_number, email, surname, first_name, middle_name, batch_id, phone, home_address, local_government, country_of_residence, next_of_kin, next_of_kin_phone, next_of_kin_relationship, deleted_at').order('id')).then(data => ({ data })),
+    fetchAllPaginated(() => supabaseAdmin.from('registrations').select('id, student_id, batch_id, stage, department').eq('batch_id', batchId).order('id')).then(data => ({ data })),
   ]);
 
   const studentCache = new Map();
+  const workbookByName = new Map();
+  const duplicateCandidates = [...(studentsRes.data || [])];
+  function rememberWorkbookName(name, student) {
+    if (!name) return;
+    const key = name.trim().toUpperCase();
+    const previous = workbookByName.get(key);
+    if (workbookByName.has(key) && (!previous || previous.id !== student.id)) workbookByName.set(key, null);
+    else workbookByName.set(key, student);
+  }
   const regMap = new Map();
 
   (studentsRes.data || []).forEach((s) => {
+    if (s.deleted_at) return;
     if (s.student_unique_id) studentCache.set(s.student_unique_id.toUpperCase(), s);
     if (s.card_number) studentCache.set(s.card_number.toUpperCase(), s);
     if (s.email && !s.email.includes('placeholder.com')) studentCache.set(s.email.toLowerCase(), s);
@@ -470,18 +481,21 @@ export async function POST(request, { params }) {
     const email = toStr(resolveFieldValue(headerMap, 'EMAIL', rowValues, warnings));
     const { first_name, middle_name, surname } = parseFullName(fullName);
 
-    // JOIN KEY: Match Charter Membership ID Number first, then Full Name, then Email
-    let s = null;
-    if (cardNo) s = studentCache.get(cardNo.toUpperCase());
-    if (!s && fullName) s = studentCache.get(fullName.toUpperCase());
-    if (!s && email && !email.includes('placeholder.com')) s = studentCache.get(email.toLowerCase());
-
-    if (!s && fullName) {
-      const fn1 = `${surname} ${first_name}`.toUpperCase();
-      const fn2 = `${first_name} ${surname}`.toUpperCase();
-      s = studentCache.get(fn1) || studentCache.get(fn2);
+    // Only a stable ID/card authorizes updating an existing student. Contact/name matches require review.
+    const regNo = toStr(resolveFieldValue(headerMap, 'REG_NO', rowValues, warnings));
+    const candidate = { student_unique_id: regNo, email, phone: toStr(resolveFieldValue(headerMap, 'PHONE', rowValues, warnings)) };
+    let s = regNo ? studentCache.get(regNo.toUpperCase()) : null;
+    const cardMatch = cardNo ? studentCache.get(cardNo.toUpperCase()) : null;
+    if (s && cardMatch && s.id !== cardMatch.id) { warnings.push('Skipped ' + fullName + ': student ID and card number identify different people.'); return null; }
+    if (!s) s = cardMatch;
+    if (!s && fullName && !regNo && !cardNo) s = workbookByName.get(fullName.toUpperCase());
+    if (!s) {
+      const duplicates = duplicateCandidates.filter(student => duplicateReasons(candidate, student).length);
+      if (duplicates.length || fullName && studentCache.has(fullName.toUpperCase())) {
+        warnings.push('Skipped possible duplicate ' + (fullName || cardNo) + ': supply the correct existing ATS student ID/card number, or review it using Add student. No records were merged.');
+        return null;
+      }
     }
-
     if (s) {
       const updateData = {};
       if (cardNo && !s.card_number) updateData.card_number = cardNo;
@@ -503,15 +517,17 @@ export async function POST(request, { params }) {
       if (Object.keys(updateData).length > 0) {
         await safeUpdateStudent(s.id, updateData);
       }
+      rememberWorkbookName(fullName, s);
       studentsProcessed++;
       return s.id;
     }
 
-    // Create new student
-    const regNo = toStr(resolveFieldValue(headerMap, 'REG_NO', rowValues, warnings));
+    // Create a separate student only after duplicate checks.
     let studentUniqueId = (regNo && regNo.toUpperCase().startsWith('ATS')) ? regNo : `ATS-${batchTag}-${String(nextSeq++).padStart(4, '0')}`;
     const studentEmail = email || generateUniqueEmail(first_name, surname);
 
+    const reservation = { ...candidate };
+    duplicateCandidates.push(reservation);
     const { data: created, error: createErr } = await safeInsertStudent({
       batch_id: batchId,
       student_unique_id: studentUniqueId,
@@ -534,7 +550,11 @@ export async function POST(request, { params }) {
       next_of_kin_relationship: toStr(resolveFieldValue(headerMap, 'NOK_REL', rowValues, warnings)),
     });
 
+    duplicateCandidates.splice(duplicateCandidates.indexOf(reservation), 1);
     if (created) {
+      duplicateCandidates.push({ ...created, phone: candidate.phone });
+      rememberWorkbookName(fullName, created);
+      studentCache.set(created.student_unique_id.toUpperCase(), created);
       studentsProcessed++;
       if (fullName) studentCache.set(fullName.toUpperCase(), created);
       if (cardNo) studentCache.set(cardNo.toUpperCase(), created);
@@ -553,11 +573,9 @@ export async function POST(request, { params }) {
     const cardNo = toStr(resolveFieldValue(headerMap, 'CARD_NO', rowValues));
     const fullName = toStr(resolveFieldValue(headerMap, 'NAME', rowValues));
     const email = toStr(resolveFieldValue(headerMap, 'EMAIL', rowValues));
-    const keys = [
-      cardNo && `card:${cardNo.toUpperCase()}`,
-      email && `email:${email.toLowerCase()}`,
-      fullName && `name:${fullName.toUpperCase()}`,
-    ].filter(Boolean);
+    const regNo = toStr(resolveFieldValue(headerMap, 'REG_NO', rowValues));
+    const phone = toStr(resolveFieldValue(headerMap, 'PHONE', rowValues));
+    const keys = [regNo ? 'id:' + regNo.toUpperCase() : cardNo ? 'card:' + cardNo.toUpperCase() : 'row:' + JSON.stringify([fullName.toUpperCase(), email.toLowerCase(), phone])];
 
     const pending = keys.map((key) => pendingStudentResolutions.get(key)).find(Boolean);
     if (pending) return pending;
@@ -770,7 +788,6 @@ export async function POST(request, { params }) {
                 final_grades: toNum(resolveFieldValue(headerMap, 'FINAL_GRADES', rowValues, warnings)),
                 status: toStr(resolveFieldValue(headerMap, 'STATUS', rowValues, warnings)),
                 comments: toStr(resolveFieldValue(headerMap, 'COMMENTS', rowValues, warnings)),
-                department: department || toStr(resolveFieldValue(headerMap, 'DEPARTMENT', rowValues, warnings)),
                 department_confirmation: toStr(resolveFieldValue(headerMap, 'DEPT_CONFIRMATION', rowValues, warnings)),
                 first_timer: toStr(resolveFieldValue(headerMap, 'FIRST_TIMER', rowValues, warnings)),
                 first_timer_date: parseExcelDate(resolveFieldValue(headerMap, 'DATE_JOINED', rowValues, warnings)),
@@ -824,7 +841,6 @@ export async function POST(request, { params }) {
                 first_timer_date: parseExcelDate(resolveFieldValue(headerMap, 'DATE_JOINED', rowValues, warnings)),
                 status: toStr(resolveFieldValue(headerMap, 'STATUS', rowValues, warnings)),
                 comments: toStr(resolveFieldValue(headerMap, 'COMMENTS', rowValues, warnings)),
-                department: department || toStr(resolveFieldValue(headerMap, 'DEPARTMENT', rowValues, warnings)),
                 updated_at: new Date().toISOString(),
               });
             }

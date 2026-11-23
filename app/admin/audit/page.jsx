@@ -376,10 +376,10 @@ export default function AuditLogsPage() {
               </div>
               <button
                 className="btn btn-outline btn-sm"
-                onClick={() => setActiveLog(null)}
-                style={{ borderRadius: '50%', width: 28, height: 28, padding: 0 }}
+                onClick={() => setActiveLog(null)} aria-label="Close audit details"
+                style={{ padding: '6px 10px' }}
               >
-                ✕
+                Close
               </button>
             </div>
 

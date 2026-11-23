@@ -73,7 +73,7 @@ export default function TrashManagementPage() {
   }
 
   async function handlePermanentDeleteBatch(id, name) {
-    if (!confirm(`⚠️ PERMANENT DELETE: Are you sure you want to permanently delete batch "${name}" and all associated student records?\n\nThis CANNOT be undone.`)) return;
+    if (!confirm(` PERMANENT DELETE: Are you sure you want to permanently delete batch "${name}" and all associated student records?\n\nThis CANNOT be undone.`)) return;
 
     setPurgingId(id);
     setMessage(null);
@@ -125,7 +125,7 @@ export default function TrashManagementPage() {
   }
 
   async function handlePermanentDeleteStudent(id, name) {
-    if (!confirm(`⚠️ PERMANENT DELETE: Are you sure you want to permanently delete student "${name}"?\n\nThis CANNOT be undone.`)) return;
+    if (!confirm(` PERMANENT DELETE: Are you sure you want to permanently delete student "${name}"?\n\nThis CANNOT be undone.`)) return;
 
     setPurgingId(id);
     setMessage(null);
@@ -153,7 +153,7 @@ export default function TrashManagementPage() {
   async function handleEmptyTrash() {
     const totalItems = batches.length + students.length;
     if (totalItems === 0) return;
-    if (!confirm(`⚠️ EMPTY TRASH: Are you sure you want to permanently purge ALL ${batches.length} batch(es) and ${students.length} student(s) currently in the trash?\n\nAll records will be erased forever and CANNOT be restored.`)) return;
+    if (!confirm(` EMPTY TRASH: Are you sure you want to permanently purge ALL ${batches.length} batch(es) and ${students.length} student(s) currently in the trash?\n\nAll records will be erased forever and CANNOT be restored.`)) return;
 
     setPurgingId('all');
     setMessage(null);

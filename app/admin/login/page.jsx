@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '../../../lib/supabaseClient';
 import Logo from '../../../components/Logo';
@@ -11,6 +11,11 @@ export default function AdminLogin() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('reason') === 'session-expired') {
+      setError('Your session has expired or could not be verified. Please sign in again.');
+    }
+  }, []);
 
   async function handleSubmit(e) {
     e.preventDefault();

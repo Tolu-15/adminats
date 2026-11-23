@@ -393,9 +393,9 @@ export default function RegisterPage() {
                   background: '#fff', color: 'var(--navy)', cursor: 'pointer'
                 }}
               >
-                <option value="MEMBERSHIP">🎓 Membership Registration</option>
-                <option value="MIT">📖 MIT Registration (Ministers In Training)</option>
-                <option value="PROCLAIMERS">📣 Proclaimers Registration</option>
+                <option value="MEMBERSHIP"> Membership Registration</option>
+                <option value="MIT"> MIT Registration (Ministers In Training)</option>
+                <option value="PROCLAIMERS"> Proclaimers Registration</option>
               </select>
             </div>
           </div>
@@ -590,7 +590,7 @@ export default function RegisterPage() {
                             border: '1px solid rgba(245,158,11,0.4)',
                             borderRadius: 6, padding: '2px 9px', fontSize: '0.7rem', fontWeight: 700
                           }}>
-                            🔄 RETAKE — Prev Status: {retakeStudent.previousStatus}
+                             RETAKE — Prev Status: {retakeStudent.previousStatus}
                           </span>
                         </div>
                         <div className="muted text-sm" style={{ marginTop: 6 }}>
@@ -668,7 +668,7 @@ export default function RegisterPage() {
                           border: '1px solid rgba(245,158,11,0.4)',
                           borderRadius: 6, padding: '3px 10px', fontSize: '0.72rem', fontWeight: 700
                         }}>
-                          🔄 Retake · {batch?.batch_name}
+                           Retake · {batch?.batch_name}
                         </span>
                       </div>
                     </div>
@@ -797,7 +797,7 @@ export default function RegisterPage() {
                           border: '1px solid rgba(212,175,55,0.3)',
                           borderRadius: 6, padding: '2px 8px', fontSize: '0.7rem', fontWeight: 700
                         }}>
-                          🎓 MIT PASSED
+                           MIT PASSED
                         </span>
                       )}
                       {/* Show retake badge if it's a repeat MIT attempt */}
@@ -807,7 +807,7 @@ export default function RegisterPage() {
                           border: '1px solid rgba(245,158,11,0.4)',
                           borderRadius: 6, padding: '2px 8px', fontSize: '0.7rem', fontWeight: 700
                         }}>
-                          🔄 RETAKE
+                           RETAKE
                         </span>
                       )}
                     </div>

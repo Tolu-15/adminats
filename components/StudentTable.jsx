@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { getImageUrl } from '../lib/getImageUrl';
 
-export default function StudentTable({ students, searchQuery = '', onNavigate }) {
+export default function StudentTable({ students, searchQuery = '', onNavigate, emptyMessage }) {
   const q = searchQuery.trim().toLowerCase();
   const filtered = q
     ? students.filter(
@@ -16,7 +16,7 @@ export default function StudentTable({ students, searchQuery = '', onNavigate })
   if (students.length === 0) {
     return (
       <div style={{ textAlign: 'center', padding: '40px 20px' }}>
-        <p className="muted">No registrations yet for this batch.</p>
+        <p className="muted">{emptyMessage || 'No registrations yet for this batch.'}</p>
       </div>
     );
   }

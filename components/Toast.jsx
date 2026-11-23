@@ -14,7 +14,7 @@ export default function Toast({ message, type = 'error', onClose, duration = 500
   if (!message) return null;
 
   return (
-    <div style={{
+    <div role={type === 'error' ? 'alert' : 'status'} aria-atomic="true" style={{
       position: 'fixed',
       top: 24,
       left: '50%',
@@ -48,7 +48,7 @@ export default function Toast({ message, type = 'error', onClose, duration = 500
         }
       `}</style>
       <i className={type === 'error' ? 'fa-solid fa-circle-exclamation' : 'fa-solid fa-circle-check'} style={{ fontSize: '1.25rem', flexShrink: 0 }} />
-      <span style={{ flex: 1, lineHeight: 1.4 }}>{message}</span>
+      <span style={{ flex: 1, lineHeight: 1.4, overflowWrap: 'anywhere' }}>{message}</span>
       <button
         type="button"
         onClick={onClose}

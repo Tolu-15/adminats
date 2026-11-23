@@ -5,6 +5,8 @@ import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { supabase } from '../../../../lib/supabaseClient';
 import { useAdminGuard } from '../../../../lib/useAdminGuard';
+import AttemptHistory from '../../../../components/AttemptHistory';
+import Toast from '../../../../components/Toast';
 import Sidebar from '../../../../components/Sidebar';
 import ProfileRow from '../../../../components/ProfileRow';
 import MitGradeEditForm from '../../../../components/MitGradeEditForm';
@@ -55,6 +57,7 @@ export default function StudentProfile() {
   // Card editing
   const [editingCard, setEditingCard] = useState(false);
   const [cardNumber, setCardNumber] = useState('');
+  const [notice, setNotice] = useState(null);
   const [savingCard, setSavingCard] = useState(false);
 
 
@@ -156,10 +159,28 @@ export default function StudentProfile() {
     }
     setLoading(false);
   }
+const adminUserId = session?.user?.id;
 
-  useEffect(() => {
-    if (session) loadData(session.access_token);
-  }, [session, id]);
+useEffect(() => {
+  if (!adminUserId || !id) return;
+
+  let cancelled = false;
+
+  async function loadProfile() {
+    const { data: { session: currentSession } } =
+      await supabase.auth.getSession();
+
+    if (!cancelled && currentSession?.user?.id === adminUserId) {
+      await loadData(currentSession.access_token);
+    }
+  }
+
+  void loadProfile();
+
+  return () => {
+    cancelled = true;
+  };
+}, [adminUserId, id]);
 
   useEffect(() => {
     setGradeForm(memGrades);
@@ -205,22 +226,18 @@ export default function StudentProfile() {
 
   async function handleSaveCard(e) {
     e.preventDefault();
+    if (savingCard) return;
     setSavingCard(true);
-    const { data: { session: sess } } = await supabase.auth.getSession();
-    const token = sess?.access_token || session?.access_token;
-    const res = await fetch(`/api/students/${id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ card_number: cardNumber.trim() }),
-    });
-    const json = await res.json();
-    setSavingCard(false);
-    if (res.ok) {
-      setStudent(json.student);
-      setEditingCard(false);
-    } else {
-      alert(json.error || 'Failed to update card number');
-    }
+    try {
+      const { data: { session: sess } } = await supabase.auth.getSession();
+      const token = sess?.access_token || session?.access_token;
+      const res = await fetch(`/api/students/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ card_number: cardNumber.trim() }) });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to update card number.');
+      setStudent(json.student); setEditingCard(false);
+      setNotice({ type: 'success', text: 'Card number updated.' });
+    } catch (error) { setNotice({ type: 'error', text: error.message || 'Failed to update card number.' }); }
+    finally { setSavingCard(false); }
   }
 
   async function handleSaveFullProfile(e) {
@@ -307,9 +324,11 @@ export default function StudentProfile() {
   if (!student) {
     return (
       <div className="admin-shell">
-        <Sidebar />
+        {notice && <Toast message={notice.text} type={notice.type} onClose={() => setNotice(null)} />}
+      <Sidebar />
         <div className="admin-main">
           <div className="admin-content">
+          <AttemptHistory studentId={id} />
             <div className="error-box">Student profile not found.</div>
           </div>
         </div>
@@ -363,11 +382,11 @@ export default function StudentProfile() {
           <div className="admin-topbar-right" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             {session?.isViewer ? (
               <span className="badge" style={{ background: 'rgba(59,130,246,0.12)', color: '#1d4ed8', border: '1px solid rgba(59,130,246,0.3)', padding: '4px 10px', fontSize: '0.75rem' }}>
-                👁️ Viewer Account (Read Only)
+                 Viewer Account (Read Only)
               </span>
             ) : (
               <span className="badge badge-gold" style={{ padding: '4px 10px', fontSize: '0.75rem' }}>
-                ⚡ Super Admin
+                 Super Admin
               </span>
             )}
             <span className="muted text-sm">{session?.user?.email}</span>
@@ -386,7 +405,7 @@ export default function StudentProfile() {
               {/* Membership */}
               <div style={{ background: 'var(--paper)', border: '1px solid var(--border)', borderRadius: 10, padding: 14, borderLeft: '4px solid #3b82f6' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                  <span style={{ fontWeight: 700, fontSize: '0.88rem', color: '#3b82f6' }}>🎓 Membership</span>
+                  <span style={{ fontWeight: 700, fontSize: '0.88rem', color: '#3b82f6' }}> Membership</span>
                   <StatusPill status={memStatus} />
                 </div>
                 <div className="text-sm muted">Batch: {student.batch?.batch_name || 'N/A'}</div>
@@ -396,7 +415,7 @@ export default function StudentProfile() {
               {/* MIT */}
               <div style={{ background: 'var(--paper)', border: '1px solid var(--border)', borderRadius: 10, padding: 14, borderLeft: `4px solid ${mitReg ? 'var(--gold)' : '#cbd5e1'}` }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                  <span style={{ fontWeight: 700, fontSize: '0.88rem', color: 'var(--gold)' }}>📖 MIT</span>
+                  <span style={{ fontWeight: 700, fontSize: '0.88rem', color: 'var(--gold)' }}> MIT</span>
                   {mitReg
                     ? <StatusPill status={mitStatus} fallback="Enrolled" />
                     : memPassed
@@ -412,7 +431,7 @@ export default function StudentProfile() {
               {/* Proclaimers */}
               <div style={{ background: 'var(--paper)', border: '1px solid var(--border)', borderRadius: 10, padding: 14, borderLeft: `4px solid ${procReg ? '#8b5cf6' : '#cbd5e1'}` }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                  <span style={{ fontWeight: 700, fontSize: '0.88rem', color: '#8b5cf6' }}>📣 Proclaimers</span>
+                  <span style={{ fontWeight: 700, fontSize: '0.88rem', color: '#8b5cf6' }}> Proclaimers</span>
                   {procReg
                     ? <StatusPill status={procStatus} fallback="Enrolled" />
                     : mitPassed
@@ -451,13 +470,13 @@ export default function StudentProfile() {
                   </div>
                   <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginTop: 6 }}>
                     {isFirstTimer && (
-                      <span style={{ background: 'rgba(59,130,246,0.12)', color: '#1d4ed8', border: '1px solid rgba(59,130,246,0.3)', borderRadius: 6, padding: '2px 8px', fontSize: '0.68rem', fontWeight: 700 }}>⭐ First Timer</span>
+                      <span style={{ background: 'rgba(59,130,246,0.12)', color: '#1d4ed8', border: '1px solid rgba(59,130,246,0.3)', borderRadius: 6, padding: '2px 8px', fontSize: '0.68rem', fontWeight: 700 }}> First Timer</span>
                     )}
                     {isMemRetake && (
-                      <span style={{ background: 'rgba(245,158,11,0.12)', color: '#92400e', border: '1px solid rgba(245,158,11,0.4)', borderRadius: 6, padding: '2px 8px', fontSize: '0.68rem', fontWeight: 700 }}>🔄 Membership Retake</span>
+                      <span style={{ background: 'rgba(245,158,11,0.12)', color: '#92400e', border: '1px solid rgba(245,158,11,0.4)', borderRadius: 6, padding: '2px 8px', fontSize: '0.68rem', fontWeight: 700 }}> Membership Retake</span>
                     )}
                     {isMitRetake && (
-                      <span style={{ background: 'rgba(245,158,11,0.12)', color: '#92400e', border: '1px solid rgba(245,158,11,0.4)', borderRadius: 6, padding: '2px 8px', fontSize: '0.68rem', fontWeight: 700 }}>🔄 MIT Retake</span>
+                      <span style={{ background: 'rgba(245,158,11,0.12)', color: '#92400e', border: '1px solid rgba(245,158,11,0.4)', borderRadius: 6, padding: '2px 8px', fontSize: '0.68rem', fontWeight: 700 }}> MIT Retake</span>
                     )}
                   </div>
                 </div>
@@ -507,9 +526,9 @@ export default function StudentProfile() {
                   <span className="profile-row-label">CHARTER MEMBERSHIP ID CARD No: </span>
                   {editingCard ? (
                     <form onSubmit={handleSaveCard} style={{ display: 'inline-flex', gap: 6, alignItems: 'center', marginTop: 4 }}>
-                      <input type="text" value={cardNumber} onChange={(e) => setCardNumber(e.target.value)} placeholder="e.g. CARD-12345" style={{ padding: '4px 8px', fontSize: '0.85rem', width: 130 }} autoFocus />
+                      <input type="text" aria-label="Membership card number" disabled={savingCard} value={cardNumber} onChange={(e) => setCardNumber(e.target.value)} placeholder="e.g. CARD-12345" style={{ padding: '4px 8px', fontSize: '0.85rem', width: 130 }} autoFocus />
                       <button className="btn btn-primary btn-sm" disabled={savingCard}>Save</button>
-                      <button type="button" className="btn btn-outline btn-sm" onClick={() => setEditingCard(false)}>✕</button>
+                      <button type="button" className="btn btn-outline btn-sm" onClick={() => setEditingCard(false)} disabled={savingCard} aria-label="Cancel card number edit">Cancel</button>
                     </form>
                   ) : (
                     <span className="profile-row-value" style={{ fontWeight: 600, color: 'var(--navy)' }}>
@@ -519,7 +538,7 @@ export default function StudentProfile() {
                 </div>
                 {!session?.isViewer && !editingCard && (
                   <button className="btn btn-ghost btn-sm" onClick={() => setEditingCard(true)} style={{ fontSize: '0.75rem' }}>
-                    ✏️ {student.card_number ? 'Edit' : 'Assign'}
+                     {student.card_number ? 'Edit' : 'Assign'}
                   </button>
                 )}
               </div>
@@ -534,9 +553,9 @@ export default function StudentProfile() {
               <ProfileRow label="Country of Residence" value={student.country_of_residence} />
 
               <div className="section-title">Personal Details</div>
-              <ProfileRow label="First Timer" value={isFirstTimer ? '⭐ Yes — First Timer' : 'No — Regular Member'} />
-              {isMemRetake && <ProfileRow label="Membership" value="🔄 Retake Student" />}
-              {isMitRetake && <ProfileRow label="MIT" value="🔄 Retake Student" />}
+              <ProfileRow label="First Timer" value={isFirstTimer ? ' Yes — First Timer' : 'No — Regular Member'} />
+              {isMemRetake && <ProfileRow label="Membership" value=" Retake Student" />}
+              {isMitRetake && <ProfileRow label="MIT" value=" Retake Student" />}
               <ProfileRow label="Date of Birth" value={student.date_of_birth} />
               <ProfileRow label="Gender" value={student.gender} />
               <ProfileRow label="Education" value={student.education} />
@@ -564,9 +583,9 @@ export default function StudentProfile() {
               {/* Plain underline tabs */}
               <div className="profile-tabs-scroll">
                 {[
-                  { id: 'MEMBERSHIP', label: '🎓 Membership Grades' },
-                  { id: 'MIT', label: `📖 MIT Record${mitReg ? ' ✓' : ''}` },
-                  { id: 'PROCLAIMERS', label: `📣 Proclaimers Record${procReg ? ' ✓' : ''}` },
+                  { id: 'MEMBERSHIP', label: ' Membership Grades' },
+                  { id: 'MIT', label: ` MIT Record${mitReg ? ' ✓' : ''}` },
+                  { id: 'PROCLAIMERS', label: ` Proclaimers Record${procReg ? ' ✓' : ''}` },
                 ].map((tab) => (
                   <button
                     key={tab.id}
@@ -605,11 +624,11 @@ export default function StudentProfile() {
                           <>
                             <button className="btn btn-outline btn-sm" onClick={cancelEditing}>Cancel</button>
                             <button className="btn btn-primary btn-sm" onClick={saveGrades} disabled={savingGrades}>
-                              {savingGrades ? 'Saving…' : '💾 Save'}
+                              {savingGrades ? 'Saving…' : ' Save'}
                             </button>
                           </>
                         ) : (
-                          <button className="btn btn-outline btn-sm" onClick={startEditing}>✏️ Edit Grades</button>
+                          <button className="btn btn-outline btn-sm" onClick={startEditing}> Edit Grades</button>
                         )
                       )}
                     </div>
@@ -700,7 +719,7 @@ export default function StudentProfile() {
                     />
                   ) : (
                     <div className="card" style={{ textAlign: 'center', padding: '48px 24px' }}>
-                      <div style={{ fontSize: '3rem', marginBottom: 12 }}>📖</div>
+                      <div style={{ fontSize: '3rem', marginBottom: 12 }}></div>
                       {memPassed ? (
                         <>
                           <h3 style={{ color: 'var(--navy)', marginBottom: 8 }}>Eligible for MIT</h3>
@@ -734,7 +753,7 @@ export default function StudentProfile() {
                     />
                   ) : (
                     <div className="card" style={{ textAlign: 'center', padding: '48px 24px' }}>
-                      <div style={{ fontSize: '3rem', marginBottom: 12 }}>📣</div>
+                      <div style={{ fontSize: '3rem', marginBottom: 12 }}></div>
                       {mitPassed ? (
                         <>
                           <h3 style={{ color: 'var(--navy)', marginBottom: 8 }}>Eligible for Proclaimers</h3>
@@ -770,7 +789,7 @@ export default function StudentProfile() {
           display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
           padding: '24px 16px', overflowY: 'auto',
         }}
-          onClick={(e) => { if (e.target === e.currentTarget) setFullEditOpen(false); }}
+          onClick={(e) => { if (e.target === e.currentTarget && !savingProfile) setFullEditOpen(false); }}
         >
           <div style={{
             background: '#fff', borderRadius: 16, width: '100%', maxWidth: 720,
@@ -793,10 +812,10 @@ export default function StudentProfile() {
                 </div>
               </div>
               <button
-                onClick={() => setFullEditOpen(false)}
+                onClick={() => setFullEditOpen(false)} disabled={savingProfile} aria-label="Close profile editor"
                 style={{ background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: 8, padding: '8px 12px', color: '#fff', cursor: 'pointer', fontSize: '0.88rem' }}
               >
-                ✕ Close
+                Close
               </button>
             </div>
 

@@ -123,7 +123,7 @@ export default function StudentViewerProfile() {
             {/* Membership */}
             <div style={{ background: 'var(--paper)', border: '1px solid var(--border)', borderRadius: 10, padding: 14, borderLeft: '4px solid #3b82f6' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                <span style={{ fontWeight: 700, fontSize: '0.88rem', color: '#3b82f6' }}>🎓 Membership</span>
+                <span style={{ fontWeight: 700, fontSize: '0.88rem', color: '#3b82f6' }}> Membership</span>
                 <StatusPill status={memStatus} />
               </div>
               <div className="text-sm muted">Batch: {student.batch?.batch_name || 'N/A'}</div>
@@ -133,7 +133,7 @@ export default function StudentViewerProfile() {
             {/* MIT */}
             <div style={{ background: 'var(--paper)', border: '1px solid var(--border)', borderRadius: 10, padding: 14, borderLeft: `4px solid ${mitReg ? 'var(--gold)' : '#cbd5e1'}` }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                <span style={{ fontWeight: 700, fontSize: '0.88rem', color: 'var(--gold)' }}>📖 MIT</span>
+                <span style={{ fontWeight: 700, fontSize: '0.88rem', color: 'var(--gold)' }}> MIT</span>
                 {mitReg ? <StatusPill status={mitStatus} fallback="Enrolled" /> : <span className="badge" style={{ background: '#e2e8f0', color: '#94a3b8', fontSize: '0.7rem' }}>Not Enrolled</span>}
               </div>
               <div className="text-sm muted">{mitReg ? `Batch: ${mitReg.batch?.batch_name}` : 'N/A'}</div>
@@ -142,7 +142,7 @@ export default function StudentViewerProfile() {
             {/* Proclaimers */}
             <div style={{ background: 'var(--paper)', border: '1px solid var(--border)', borderRadius: 10, padding: 14, borderLeft: `4px solid ${procReg ? '#8b5cf6' : '#cbd5e1'}` }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                <span style={{ fontWeight: 700, fontSize: '0.88rem', color: '#8b5cf6' }}>📣 Proclaimers</span>
+                <span style={{ fontWeight: 700, fontSize: '0.88rem', color: '#8b5cf6' }}> Proclaimers</span>
                 {procReg ? <StatusPill status={procStatus} fallback="Enrolled" /> : <span className="badge" style={{ background: '#e2e8f0', color: '#94a3b8', fontSize: '0.7rem' }}>Not Enrolled</span>}
               </div>
               <div className="text-sm muted">{procReg ? `Batch: ${procReg.batch?.batch_name}` : 'N/A'}</div>
@@ -174,7 +174,7 @@ export default function StudentViewerProfile() {
                 </div>
                 {isFirstTimer && (
                   <div style={{ marginTop: 6 }}>
-                    <span style={{ background: 'rgba(59,130,246,0.12)', color: '#1d4ed8', border: '1px solid rgba(59,130,246,0.3)', borderRadius: 6, padding: '2px 8px', fontSize: '0.68rem', fontWeight: 700 }}>⭐ First Timer</span>
+                    <span style={{ background: 'rgba(59,130,246,0.12)', color: '#1d4ed8', border: '1px solid rgba(59,130,246,0.3)', borderRadius: 6, padding: '2px 8px', fontSize: '0.68rem', fontWeight: 700 }}> First Timer</span>
                   </div>
                 )}
               </div>
@@ -214,9 +214,9 @@ export default function StudentViewerProfile() {
             {/* Tabs */}
             <div className="profile-tabs-scroll">
               {[
-                { id: 'MEMBERSHIP', label: '🎓 Membership Grades' },
-                { id: 'MIT', label: `📖 MIT Record${mitReg ? ' ✓' : ''}` },
-                { id: 'PROCLAIMERS', label: `📣 Proclaimers Record${procReg ? ' ✓' : ''}` },
+                { id: 'MEMBERSHIP', label: ' Membership Grades' },
+                { id: 'MIT', label: ` MIT Record${mitReg ? ' ✓' : ''}` },
+                { id: 'PROCLAIMERS', label: ` Proclaimers Record${procReg ? ' ✓' : ''}` },
               ].map((tab) => (
                 <button
                   key={tab.id}

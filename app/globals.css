@@ -1236,3 +1236,50 @@ textarea:focus {
   border: none;
   box-shadow: none;
 }
+.manual-student-form { padding: 24px; margin-bottom: 24px; max-width: 900px; }
+.manual-student-heading { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; }
+.manual-student-heading h2 { margin: 0; font-size: 1.2rem; }
+.manual-student-heading p { margin: 8px 0 20px; }
+.manual-student-modes { display: flex; gap: 8px; margin-bottom: 20px; }
+.manual-student-search > div { display: flex; gap: 8px; margin: 8px 0 16px; }
+.manual-student-search input { min-width: 0; flex: 1; }
+.manual-student-results { display: grid; gap: 8px; margin-bottom: 20px; }
+.manual-student-result { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; text-align: left; background: white; border: 1px solid var(--border, #ddd); border-radius: 8px; padding: 12px; cursor: pointer; color: var(--navy); }
+.manual-student-result.selected { border-color: var(--navy); background: #f5f7fa; }
+
+/* Batch actions and table controls */
+.batch-actions { margin-left: auto; display: flex; align-items: flex-start; gap: 8px; flex-wrap: wrap; }
+.more-actions { position: relative; }
+.more-actions > summary { list-style: none; cursor: pointer; }
+.more-actions > summary::-webkit-details-marker { display: none; }
+.more-actions > summary::after { content: ''; width: 6px; height: 6px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(45deg); margin: -3px 2px 0 6px; }
+.more-actions[open] > summary::after { transform: rotate(225deg); margin-top: 3px; }
+.more-actions-list { position: absolute; right: 0; top: calc(100% + 6px); z-index: 30; width: 245px; max-width: calc(100vw - 32px); padding: 6px; border: 1px solid var(--border); border-radius: 10px; background: white; box-shadow: 0 8px 24px rgba(15,23,42,.12); display: grid; gap: 2px; }
+.more-actions:not([open]) .more-actions-list { display: none; }
+.more-actions-list button { width: 100%; border: 0; border-radius: 6px; padding: 10px 12px; text-align: left; background: transparent; color: var(--navy); font: inherit; font-size: .85rem; cursor: pointer; }
+.more-actions-list button:hover, .more-actions-list button:focus-visible { background: #f1f5f9; }
+.more-actions-list .danger-action { border-top: 1px solid var(--border); border-radius: 0 0 6px 6px; color: #b91c1c; margin-top: 4px; }
+.batch-table-controls { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; }
+.batch-table-controls .field { margin: 0; min-width: 180px; }
+.import-processing { margin-bottom: 20px; }
+.import-processing p { margin: 6px 0 0; }
+button:disabled { cursor: not-allowed; opacity: .65; }
+.more-actions > summary:focus-visible, .more-actions-list button:focus-visible { outline: 2px solid var(--navy); outline-offset: 2px; }
+.mobile-close-btn { font-size: .85rem; padding: 8px; min-height: 36px; }
+@media (max-width: 600px) {
+  .batch-actions { margin-left: 0; width: 100%; }
+  .batch-table-controls .field { flex: 1; min-width: 140px; }
+  .manual-student-form { padding: 16px; }
+}
+
+.bulk-grades { padding: 24px; margin-bottom: 24px; }
+.bulk-table-scroll { overflow-x: auto; max-width: 100%; margin: 16px 0; }
+.bulk-table-scroll table { min-width: 100%; }
+.bulk-table-scroll input { width: 95px; min-width: 95px; padding: 8px; }
+.bulk-table-scroll select { min-width: 145px; }
+.bulk-grade-actions { display: flex; flex-wrap: wrap; gap: 10px; margin: 16px 0 0; }
+.duplicate-confirm { display: flex; gap: 10px; align-items: flex-start; }
+.duplicate-confirm input { width: auto; margin-top: 4px; }
+.attempt-history { margin: 24px 0; padding: 24px; }
+.attempt-history details { border-top: 1px solid var(--border); padding: 12px 0; }
+.attempt-history summary { cursor: pointer; font-weight: 600; }

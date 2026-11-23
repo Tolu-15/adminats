@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import PhotoUploader from './PhotoUploader';
 
 export default function RegistrationForm({
+  hidePhoto = false, submitLabel = 'Submit Registration',
   form, update, onSubmit, submitting, error, onPhotoSelected, onPhotoUploaded, photoUrl,
   turnstileSiteKey, onTurnstileTokenChange, turnstileResetKey = 0,
 }) {
@@ -63,7 +64,7 @@ export default function RegistrationForm({
       {error && <div className="error-box">{error}</div>}
 
       {/* ── PHOTO ── */}
-      <div className="section-title">Profile Photo</div>
+      {!hidePhoto && <><div className="section-title">Profile Photo</div>
       <PhotoUploader
         currentUrl={photoUrl || null}
         onPhotoSelected={onPhotoSelected}
@@ -71,6 +72,7 @@ export default function RegistrationForm({
         hint="JPG, JPEG, PNG, WebP · Max 5 MB · Photo will upload when you submit registration."
       />
 
+      </>}
       <div className="section-title">Personal Details</div>
       <div className="field">
         <label>Surname *</label>
@@ -242,7 +244,7 @@ export default function RegistrationForm({
       )}
 
       <button type="submit" className="btn btn-primary" disabled={submitting}>
-        {submitting ? 'Submitting…' : 'Submit Registration'}
+        {submitting ? 'Submitting…' : submitLabel}
       </button>
     </form>
   );

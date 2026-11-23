@@ -8,6 +8,11 @@ import StudentTable from '../../../../components/StudentTable';
 import MitStudentTable from '../../../../components/MitStudentTable';
 import Sidebar from '../../../../components/Sidebar';
 import PageLoader from '../../../../components/PageLoader';
+import BulkGradeEditor from '../../../../components/BulkGradeEditor';
+import AddStudentForm from '../../../../components/AddStudentForm';
+import { canWrite, getUserRole } from '../../../../lib/roles';
+import Toast from '../../../../components/Toast';
+import { filterAndSortStudents } from '../../../../lib/studentTableFilters';
 import QRCodeModal from '../../../../components/QRCodeModal';
 
 export default function BatchDetail({ params: paramsPromise }) {
@@ -21,8 +26,16 @@ export default function BatchDetail({ params: paramsPromise }) {
   const [mitRegs, setMitRegs] = useState([]);
   const [proclaimersRegs, setProclaimersRegs] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [notice, setNotice] = useState(null);
+  const [downloadBusy, setDownloadBusy] = useState('');
+  const [statusFilter, setStatusFilter] = useState('ALL');
+  const [sortOrder, setSortOrder] = useState('name-asc');
+  const actionsRef = useRef(null);
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('ALL');
+  const [bulkGradesDirty, setBulkGradesDirty] = useState(false);
+  const [showBulkGrades, setShowBulkGrades] = useState(false);
+  const [showAddStudent, setShowAddStudent] = useState(false);
   const [showQrModal, setShowQrModal] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [renaming, setRenaming] = useState(false);
@@ -30,9 +43,16 @@ export default function BatchDetail({ params: paramsPromise }) {
   const [renameSaving, setRenameSaving] = useState(false);
   const [renameError, setRenameError] = useState('');
 
+  useEffect(() => {
+    function closeActions(event) {
+      if (!actionsRef.current?.contains(event.target)) actionsRef.current?.removeAttribute('open');
+    }
+    document.addEventListener('pointerdown', closeActions);
+    return () => document.removeEventListener('pointerdown', closeActions);
+  }, []);
+
   // Import state
   const [importing, setImporting] = useState(false);
-  const [importProgress, setImportProgress] = useState({ percent: 0, stage: '', detail: '', rows: 0, sheets: [] });
   const [importResult, setImportResult] = useState(null);
   const fileInputRef = useRef(null);
 
@@ -41,7 +61,7 @@ export default function BatchDetail({ params: paramsPromise }) {
     if (!importing) return;
     function handleBeforeUnload(e) {
       e.preventDefault();
-      e.returnValue = '⚠️ Upload in progress! Leaving this page will cancel the ongoing upload.';
+      e.returnValue = ' Upload in progress! Leaving this page will cancel the ongoing upload.';
       return e.returnValue;
     }
     window.addEventListener('beforeunload', handleBeforeUnload);
@@ -49,9 +69,9 @@ export default function BatchDetail({ params: paramsPromise }) {
   }, [importing]);
 
   function handleNavigationGuard(e) {
-    if (importing) {
+    if (importing || bulkGradesDirty) {
       const confirmLeave = window.confirm(
-        '⚠️ Upload in progress! Navigating away will cancel the ongoing file upload.\n\nAre you sure you want to cancel and leave?'
+        bulkGradesDirty ? 'You have unsaved class grades. Leave this page and discard those edits?' : 'Import in progress. Leave this page before the result is available?'
       );
       if (!confirmLeave) {
         if (e) e.preventDefault();
@@ -66,24 +86,24 @@ export default function BatchDetail({ params: paramsPromise }) {
       if (!data.session) {
         router.push('/admin/login');
       } else {
-        const userRole = data.session.user?.user_metadata?.role || 'viewer';
-        const isViewer = userRole === 'viewer' || data.session.user?.email === 'viewer@ats.com';
+        const userRole = getUserRole(data.session.user);
+        const isViewer = !canWrite(data.session.user);
         setSession({ ...data.session, role: userRole, isViewer });
       }
     });
   }, [router]);
 
   async function loadAll(s) {
-    const res = await fetch(`/api/batches/${id}/students`, {
-      headers: { Authorization: `Bearer ${s.access_token}` },
-    });
-    if (!res.ok) { setLoading(false); return; }
-    const json = await res.json();
-    setBatch(json.batch);
-    setStudents(json.students || []);
-    setMitRegs(json.mitRegs || []);
-    setProclaimersRegs(json.proclaimersRegs || []);
-    setLoading(false);
+    try {
+      const res = await fetch(`/api/batches/${id}/students`, { headers: { Authorization: `Bearer ${s.access_token}` } });
+      const json = await res.json();
+      if (!res.ok || !json.batch) throw new Error(json.error || 'Unable to load batch students.');
+      setBatch(json.batch);
+      setStudents(json.students || []);
+      setMitRegs(json.mitRegs || []);
+      setProclaimersRegs(json.proclaimersRegs || []);
+    } catch (error) { setNotice({ type: 'error', text: error.message || 'Unable to load batch students.' }); }
+    finally { setLoading(false); }
   }
 
   useEffect(() => {
@@ -96,198 +116,75 @@ export default function BatchDetail({ params: paramsPromise }) {
     return () => window.removeEventListener('focus', onFocus);
   }, [session, id]);
 
-  async function downloadTemplate() {
-    const res = await fetch('/api/admin/template', {
-      headers: { Authorization: `Bearer ${session.access_token}` },
-    });
-    if (!res.ok) { alert('Template download failed.'); return; }
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'ATS_Master_Migration_Template.xlsx';
-    a.click();
-    URL.revokeObjectURL(url);
-  }
-
-  async function downloadExcel() {
-    const res = await fetch(`/api/batches/${id}/export`, {
-      headers: { Authorization: `Bearer ${session.access_token}` },
-    });
-    if (!res.ok) { alert('Export failed.'); return; }
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    const disp = res.headers.get('Content-Disposition') || '';
-    const rfcMatch = disp.match(/filename\*=UTF-8''([^;]+)/i);
-    const stdMatch = disp.match(/filename="([^"]+)"/i);
-    a.download = rfcMatch ? decodeURIComponent(rfcMatch[1]) : (stdMatch ? stdMatch[1] : `Batch_${batch?.batch_code}_Grades.xlsx`);
-    a.click();
-    URL.revokeObjectURL(url);
+  async function downloadFile(kind) {
+    if (downloadBusy) return;
+    setDownloadBusy(kind);
+    actionsRef.current?.removeAttribute('open');
+    try {
+      const { data } = await supabase.auth.getSession();
+      const res = await fetch(kind === 'template' ? '/api/admin/template' : `/api/batches/${id}/export`, {
+        headers: { Authorization: `Bearer ${data.session?.access_token || session.access_token}` },
+      });
+      if (!res.ok) throw new Error(kind === 'template' ? 'Template download failed. Please try again.' : 'Export failed. Please try again.');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const disp = res.headers.get('Content-Disposition') || '';
+      const rfcMatch = disp.match(/filename\*=UTF-8''([^;]+)/i);
+      const stdMatch = disp.match(/filename="([^"]+)"/i);
+      a.download = kind === 'template' ? 'ATS_Master_Migration_Template.xlsx' : rfcMatch ? decodeURIComponent(rfcMatch[1]) : stdMatch ? stdMatch[1] : `Batch_${batch?.batch_code}_Grades.xlsx`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setNotice({ type: 'success', text: kind === 'template' ? 'Template download started.' : 'Grade sheet download started.' });
+    } catch (error) { setNotice({ type: 'error', text: error.message || 'Download failed.' }); }
+    finally { setDownloadBusy(''); }
   }
 
   async function handleUpload(e) {
     const file = e.target.files?.[0];
-    if (!file) return;
-
-    if (file.size > 10 * 1024 * 1024) {
-      alert('File exceeds the 10 MB maximum upload limit. Please select a smaller file.');
+    if (!file || importing) return;
+    actionsRef.current?.removeAttribute('open');
+    if (file.size > 10 * 1024 * 1024 || !file.name.toLowerCase().endsWith('.xlsx')) {
+      setNotice({ type: 'error', text: file.size > 10 * 1024 * 1024 ? 'File exceeds the 10 MB limit. Select a smaller file.' : 'Please select an Excel (.xlsx) file. Legacy .xls files are not supported.' });
       e.target.value = '';
       return;
     }
-
-    const lowerName = (file.name || '').toLowerCase();
-    if (!lowerName.endsWith('.xlsx')) {
-      alert('Please save the spreadsheet as an Excel (.xlsx) file before uploading. Legacy .xls files are not supported.');
-      e.target.value = '';
-      return;
-    }
-
     setImporting(true);
     setImportResult(null);
-    setImportProgress({
-      percent: 5,
-      stage: 'Step 1/4: Reading Excel migration template file…',
-      detail: `Selected ${file.name} (${(file.size / 1024).toFixed(1)} KB).`,
-      rows: 0,
-      sheets: [],
-    });
-
     try {
-      // The server reads the workbook once. Parsing it in the browser too
-      // doubled the initial wait before the import could start.
-      const sheetNames = [];
-      const estimatedRows = 0;
-
-      setImportProgress({
-        percent: 20,
-        stage: 'Step 2/4: Analyzing worksheets & student biodata…',
-        detail: 'Validating the workbook, checking duplicates, and saving records in batches.',
-        rows: estimatedRows,
-        sheets: sheetNames,
-      });
-
-      // Step 2: Live progression stages
-      const interval = setInterval(() => {
-        setImportProgress((prev) => {
-          if (prev.percent >= 90) {
-            clearInterval(interval);
-            return prev;
-          }
-          const nextPercent = prev.percent + Math.floor(Math.random() * 8) + 4;
-          let stageMsg = 'Step 2/4: Processing student biodata & generating ATS Student IDs…';
-          let detailMsg = `Validating student profiles & emails…`;
-
-          if (nextPercent > 45 && nextPercent <= 70) {
-            stageMsg = 'Step 3/4: Saving Membership & MIT grades…';
-            detailMsg = `Updating attendance, test scores, and class records…`;
-          } else if (nextPercent > 70 && nextPercent <= 88) {
-            stageMsg = 'Step 4/4: Saving Proclaimers grades & Mountain of Influence…';
-            detailMsg = `Linking Proclaimers registrations & grade payloads…`;
-          } else if (nextPercent > 88) {
-            stageMsg = 'Step 4/4: Finalizing batch database records & indexes…';
-            detailMsg = `Completing database transactions…`;
-          }
-
-          if (nextPercent <= 45) {
-            stageMsg = 'Saving student biodata';
-            detailMsg = estimatedRows
-              ? `Processing up to ${estimatedRows} row(s). Please keep this page open.`
-              : 'Processing student profiles. Please keep this page open.';
-          } else if (nextPercent <= 70) {
-            stageMsg = 'Saving Membership and MIT grades';
-            detailMsg = 'Updating attendance, test scores, class records, and registrations.';
-          } else if (nextPercent <= 88) {
-            stageMsg = 'Saving Proclaimers grades';
-            detailMsg = 'Linking Proclaimers registrations and grade records.';
-          } else {
-            stageMsg = 'Finalizing import';
-            detailMsg = 'Refreshing batch records and checking for reported issues.';
-          }
-
-          return {
-            percent: Math.min(nextPercent, 92),
-            stage: stageMsg,
-            detail: detailMsg,
-            rows: prev.rows,
-            sheets: prev.sheets,
-          };
-        });
-      }, 350);
-
       const fd = new FormData();
       fd.append('file', file);
-
+      const { data } = await supabase.auth.getSession();
       const res = await fetch(`/api/batches/${id}/import`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${session.access_token}` },
-        body: fd,
+        method: 'POST', headers: { Authorization: `Bearer ${data.session?.access_token || session.access_token}` }, body: fd,
       });
-
-      clearInterval(interval);
-
       const responseText = await res.text();
-      let json = {};
-      try {
-        json = responseText ? JSON.parse(responseText) : {};
-      } catch {
-        json = {};
-      }
-      if (!res.ok) {
-        json.error = json.error || `Import failed (HTTP ${res.status}). Please try again; if it continues, contact support with the upload time.`;
-        setImportProgress({ percent: 100, stage: 'Import Failed ❌', detail: json.error || 'Import failed.' });
-        setImportResult({ error: json.error || 'Import failed.', errors: json.errors || [] });
-      } else {
-        const studentCount = json.studentsProcessed || 0;
-        const gradeCount = json.gradesUpdated || 0;
-        const retakeCount = json.retakesProcessed || 0;
-
-        let detailText = `Successfully imported ${studentCount} new student profile(s) and ${gradeCount} grade record(s).`;
-        if (retakeCount > 0) {
-          detailText += ` Re-enrolled ${retakeCount} retake student(s).`;
-        }
-
-        setImportProgress({
-          percent: 100,
-          stage: 'Import Complete! 🎉',
-          detail: detailText,
-          rows: estimatedRows,
-          sheets: sheetNames,
-        });
-        setImportResult(json);
-      }
-    } catch (err) {
-      setImportProgress({ percent: 100, stage: 'Import Error ❌', detail: err.message });
-      setImportResult({ error: err.message || 'Network error during import.' });
-    }
-
-    // Delay finish by 1000ms so user sees completed 100% bar
-    setTimeout(async () => {
+      let json;
+      try { json = JSON.parse(responseText); } catch { throw new Error('The server returned an unreadable response. Refresh the batch and check its records before retrying.'); }
+      if (!res.ok) json.error = json.error || `Import failed (HTTP ${res.status}). Check the batch records before retrying.`;
+      setImportResult(json);
+    } catch (error) {
+      setImportResult({ error: error.message || 'Connection lost. Refresh the batch and check its records before retrying.' });
+    } finally {
       setImporting(false);
-      await loadAll(session);
       if (fileInputRef.current) fileInputRef.current.value = '';
-    }, 1000);
+      await loadAll(session);
+    }
   }
 
   async function deleteBatch() {
+    if (deleting) return;
     if (!confirm(`Are you sure you want to delete "${batch?.batch_name}"? This cannot be undone.`)) return;
     setDeleting(true);
 
-    const { data: freshData } = await supabase.auth.getSession();
-    const token = freshData?.session?.access_token || session?.access_token;
-
-    const res = await fetch(`/api/batches/${id}`, {
-      method: 'DELETE',
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (res.ok) {
+    try {
+      const { data } = await supabase.auth.getSession();
+      const res = await fetch(`/api/batches/${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${data.session?.access_token || session?.access_token}` } });
+      if (!res.ok) { const json = await res.json(); throw new Error(json.error || 'Delete failed.'); }
       router.push('/admin');
-    } else {
-      const json = await res.json();
-      alert(`Delete failed: ${json.error}`);
-      setDeleting(false);
-    }
+    } catch (error) { setNotice({ type: 'error', text: error.message || 'Delete failed.' }); }
+    finally { setDeleting(false); }
   }
 
   function startRename() {
@@ -306,28 +203,32 @@ export default function BatchDetail({ params: paramsPromise }) {
     const nextName = renameValue.trim();
     if (!nextName) { setRenameError('Batch name cannot be empty.'); return; }
 
+    if (renameSaving) return;
     setRenameSaving(true);
     setRenameError('');
-    const { data: freshData } = await supabase.auth.getSession();
-    const token = freshData?.session?.access_token || session?.access_token;
-
-    const res = await fetch(`/api/batches/${id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ batch_name: nextName }),
-    });
-    const json = await res.json();
-    setRenameSaving(false);
-    if (!res.ok) { setRenameError(json.error || 'Failed to rename batch.'); return; }
-
-    setBatch((prev) => ({ ...prev, batch_name: json.batch.batch_name }));
-    setRenaming(false);
-    setRenameValue('');
+    try {
+      const { data } = await supabase.auth.getSession();
+      const res = await fetch(`/api/batches/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${data.session?.access_token || session?.access_token}` }, body: JSON.stringify({ batch_name: nextName }) });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to rename batch.');
+      setBatch(prev => ({ ...prev, batch_name: json.batch.batch_name }));
+      setRenaming(false); setRenameValue('');
+      setNotice({ type: 'success', text: 'Batch renamed.' });
+    } catch (error) { setRenameError(error.message || 'Failed to rename batch.'); }
+    finally { setRenameSaving(false); }
   }
 
   if (session === undefined || loading) {
     return <PageLoader />;
   }
+
+  if (!batch) return (
+    <div className="admin-shell"><Sidebar /><div className="admin-main"><div className="admin-content">
+      <div className="error-box" role="alert">{notice?.text || 'Batch not found or unavailable.'}</div>
+      <button className="btn btn-outline" onClick={() => { setLoading(true); loadAll(session); }}>Retry</button>
+      <Link className="btn btn-ghost" href="/admin">Back to batches</Link>
+    </div></div></div>
+  );
 
   const uniqueStudentIds = new Set([
     ...students.map((s) => s.id),
@@ -336,23 +237,26 @@ export default function BatchDetail({ params: paramsPromise }) {
   ].filter(Boolean));
   const uniqueStudentCount = uniqueStudentIds.size || students.length;
   const totalCount = uniqueStudentCount;
+  const tableOptions = { status: statusFilter, sort: sortOrder };
+  const visibleStudents = filterAndSortStudents(students, tableOptions);
+  const visibleMit = filterAndSortStudents(mitRegs, { ...tableOptions, studentOf: row => row.membership_student, gradesOf: row => row.mit_grades });
+  const visibleProclaimers = filterAndSortStudents(proclaimersRegs, { ...tableOptions, studentOf: row => row.membership_student, gradesOf: row => row.proclaimers_grades });
 
-  // Which tabs to show based on what exists
-  const tabs = [
-    { id: 'ALL', label: `All (${uniqueStudentCount})` },
-    ...(students.length > 0 ? [{ id: 'MEMBERSHIP', label: `Membership (${students.length})` }] : []),
-    ...(mitRegs.length > 0 ? [{ id: 'MIT', label: `MIT (${mitRegs.length})` }] : []),
-    ...(proclaimersRegs.length > 0 ? [{ id: 'PROCLAIMERS', label: `Proclaimers (${proclaimersRegs.length})` }] : []),
-  ];
-
+const tabs = [
+  { id: 'ALL', label: `All (${uniqueStudentCount})` },
+  { id: 'MEMBERSHIP', label: `Membership (${students.length})` },
+  { id: 'MIT', label: `MIT (${mitRegs.length})` },
+  { id: 'PROCLAIMERS', label: `Proclaimers (${proclaimersRegs.length})` },
+];
   return (
     <div className="admin-shell">
+      {notice && <Toast message={notice.text} type={notice.type} onClose={() => setNotice(null)} />}
       <Sidebar onNavigate={handleNavigationGuard} />
       <div className="admin-main">
         <div className="admin-topbar">
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <Link href="/admin" className="btn btn-ghost btn-sm" style={{ padding: '6px 10px' }} onClick={handleNavigationGuard}>
-              ← Back
+              Back
             </Link>
             <div style={{ minWidth: 0 }}>
               {renaming ? (
@@ -370,10 +274,10 @@ export default function BatchDetail({ params: paramsPromise }) {
                       disabled={renameSaving}
                       style={{ fontSize: '1rem', padding: '6px 10px', minWidth: 220 }}
                     />
-                    <button className="btn btn-primary btn-sm" onClick={saveRename} disabled={renameSaving} title="Save name" style={{ padding: '6px 10px' }}>
+                    <button className="btn btn-primary btn-sm" onClick={saveRename} disabled={renameSaving} title="Save name" aria-label="Save batch name" style={{ padding: '6px 10px' }}>
                       {renameSaving ? <i className="fa-solid fa-spinner fa-spin" /> : <i className="fa-solid fa-check" />}
                     </button>
-                    <button className="btn btn-outline btn-sm" onClick={cancelRename} disabled={renameSaving} title="Cancel" style={{ padding: '6px 10px' }}>
+                    <button className="btn btn-outline btn-sm" onClick={cancelRename} disabled={renameSaving} title="Cancel" aria-label="Cancel rename" style={{ padding: '6px 10px' }}>
                       <i className="fa-solid fa-xmark" />
                     </button>
                   </div>
@@ -393,7 +297,7 @@ export default function BatchDetail({ params: paramsPromise }) {
                   {!session?.isViewer && (
                     <button
                       onClick={startRename}
-                      title="Rename batch"
+                      title="Rename batch" aria-label="Rename batch" disabled={importing || deleting || showAddStudent}
                       style={{ background: 'transparent', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: '0.82rem', flexShrink: 0, padding: 4 }}
                     >
                       <i className="fa-solid fa-pen" />
@@ -409,11 +313,11 @@ export default function BatchDetail({ params: paramsPromise }) {
           <div className="admin-topbar-right" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             {session?.isViewer ? (
               <span className="badge" style={{ background: 'rgba(59,130,246,0.12)', color: '#1d4ed8', border: '1px solid rgba(59,130,246,0.3)', padding: '4px 10px', fontSize: '0.75rem' }}>
-                👁️ Viewer Account (Read Only)
+                 Viewer Account (Read Only)
               </span>
             ) : (
               <span className="badge badge-gold" style={{ padding: '4px 10px', fontSize: '0.75rem' }}>
-                ⚡ Super Admin
+                 Super Admin
               </span>
             )}
             <span className="muted text-sm">{session?.user?.email}</span>
@@ -421,6 +325,8 @@ export default function BatchDetail({ params: paramsPromise }) {
         </div>
 
         <div className="admin-content">
+          {showBulkGrades && !session?.isViewer && <BulkGradeEditor batchId={id} onDirtyChange={setBulkGradesDirty} onClose={() => setShowBulkGrades(false)} onSaved={() => loadAll(session)} />}
+          {showAddStudent && !session?.isViewer && <AddStudentForm batch={batch} session={session} onClose={() => setShowAddStudent(false)} onAdded={async () => { await loadAll(session); setNotice({ type: 'success', text: 'Student added to batch.' }); }} />}
           {/* Action bar */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
             {/* Search */}
@@ -430,146 +336,46 @@ export default function BatchDetail({ params: paramsPromise }) {
               </svg>
               <input
                 type="text"
-                placeholder="Search by name or student ID…"
+                aria-label="Search batch students" placeholder="Search by name or student ID"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
               />
             </div>
 
-            <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              <button className="btn btn-outline btn-sm" onClick={() => setShowQrModal(true)}>
-                <i className="fa-solid fa-qrcode"></i> QR Code
-              </button>
-              {!session?.isViewer && (
-                <>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept=".xlsx,.xls"
-                    style={{ display: 'none' }}
-                    onChange={handleUpload}
-                  />
-                  <button
-                    className="btn btn-sm"
-                    onClick={() => fileInputRef.current?.click()}
-                    disabled={importing}
-                    title="Upload filled migration template to import students"
-                    style={{
-                      background: importing ? 'rgba(212,175,55,0.5)' : 'rgba(212,175,55,0.15)',
-                      color: 'var(--navy)',
-                      border: '1px solid rgba(212,175,55,0.5)',
-                      cursor: importing ? 'not-allowed' : 'pointer',
-                      display: 'inline-flex', alignItems: 'center', gap: 6,
-                    }}
-                  >
-                    {importing ? (
-                      <><i className="fa-solid fa-spinner fa-spin"></i> Importing…</>
-                    ) : (
-                      <><i className="fa-solid fa-file-import"></i> Import Data</>
-                    )}
-                  </button>
-                  <button className="btn btn-outline btn-sm" onClick={downloadTemplate} title="Download master migration template Excel sheet">
-                    <i className="fa-solid fa-file-excel"></i> Migration Template
-                  </button>
-                </>
-              )}
-              <button className="btn btn-outline btn-sm" onClick={downloadExcel}>
-                <i className="fa-solid fa-file-export"></i> Export Grade Sheet
-              </button>
-              {!session?.isViewer && (
-                <button
-                  className="btn btn-sm"
-                  onClick={deleteBatch}
-                  disabled={deleting}
-                  style={{
-                    background: deleting ? '#fca5a5' : '#fee2e2',
-                    color: '#dc2626',
-                    border: '1px solid #fca5a5',
-                    cursor: deleting ? 'not-allowed' : 'pointer',
-                    display: 'inline-flex', alignItems: 'center', gap: 6,
-                  }}
-                >
-                  {deleting ? (
-                    <><i className="fa-solid fa-spinner fa-spin"></i> Deleting…</>
-                  ) : (
-                    <><i className="fa-solid fa-trash"></i> Delete Batch</>
-                  )}
-                </button>
-              )}
+            <div className="batch-actions">
+              {!session?.isViewer && <button className="btn btn-primary btn-sm" onClick={() => setShowAddStudent(true)} disabled={importing || deleting || renameSaving || showAddStudent || showBulkGrades}>Add student</button>}
+              {!session?.isViewer && <button className="btn btn-outline btn-sm" disabled={importing || deleting || showAddStudent || showBulkGrades} onClick={() => setShowBulkGrades(true)}>Enter class grades</button>}
+              <details className="more-actions" ref={actionsRef} onKeyDown={e => { if (e.key === 'Escape') { e.currentTarget.removeAttribute('open'); e.currentTarget.querySelector('summary')?.focus(); } }}>
+                <summary className="btn btn-outline btn-sm">More actions</summary>
+                <div className="more-actions-list">
+                  <button disabled={importing || deleting || renameSaving} onClick={() => { setShowQrModal(true); actionsRef.current?.removeAttribute('open'); }}>QR code</button>
+                  {!session?.isViewer && <>
+                    <button disabled={importing || deleting || renameSaving || showAddStudent || showBulkGrades} onClick={() => fileInputRef.current?.click()}>Import students and grades</button>
+                    <button disabled={!!downloadBusy || importing || deleting} onClick={() => downloadFile('template')}>{downloadBusy === 'template' ? 'Downloading template...' : 'Download template'}</button>
+                  </>}
+                  <button disabled={!!downloadBusy || importing || deleting} onClick={() => downloadFile('export')}>{downloadBusy === 'export' ? 'Exporting grades...' : 'Export grade sheet'}</button>
+                  {!session?.isViewer && <button className="danger-action" disabled={deleting || importing || renameSaving || showAddStudent || showBulkGrades} onClick={() => { actionsRef.current?.removeAttribute('open'); deleteBatch(); }}>{deleting ? 'Deleting...' : 'Delete batch'}</button>}
+                </div>
+              </details>
+              <input ref={fileInputRef} type="file" accept=".xlsx" hidden onChange={handleUpload} />
             </div>
           </div>
-
-          {/* Uploading / Progressive Progress Bar Display */}
-          {importing && (
-            <div style={{
-              background: '#fff',
-              border: '1px solid var(--border)',
-              borderRadius: 10,
-              padding: '18px 20px',
-              marginBottom: 24,
-              boxShadow: '0 10px 22px rgba(15, 23, 42, 0.08)',
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-                  <div style={{
-                    width: 40, height: 40, borderRadius: 8,
-                    background: 'rgba(212,175,55,0.15)', border: '1px solid rgba(212,175,55,0.35)',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    color: 'var(--gold, #d4af37)', fontSize: '1.2rem',
-                  }}>
-                    {importProgress.percent === 100 ? (
-                      <i className="fa-solid fa-check" style={{ color: '#10b981' }}></i>
-                    ) : (
-                      <i className="fa-solid fa-spinner fa-spin"></i>
-                    )}
-                  </div>
-                  <div>
-                    <div style={{ fontWeight: 700, fontSize: '0.98rem', color: 'var(--navy)' }}>
-                      {importProgress.stage || 'Uploading Batch Data…'}
-                    </div>
-                    <div style={{ fontSize: '0.82rem', color: 'var(--muted)', marginTop: 2 }}>
-                      {importProgress.detail}
-                    </div>
-                    {importProgress.sheets?.length > 0 && (
-                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
-                        {importProgress.sheets.slice(0, 4).map((sheetName) => (
-                          <span key={sheetName} className="badge" style={{ fontSize: '0.7rem' }}>{sheetName}</span>
-                        ))}
-                        {importProgress.sheets.length > 4 && (
-                          <span className="badge" style={{ fontSize: '0.7rem' }}>+{importProgress.sheets.length - 4} more</span>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </div>
-                <div style={{
-                  fontSize: '1rem', fontWeight: 800, color: 'var(--navy)',
-                  fontFamily: 'monospace', background: 'var(--paper)',
-                  padding: '5px 12px', borderRadius: 8, border: '1px solid var(--border)'
-                }}>
-                  {importProgress.percent}%
-                </div>
-              </div>
-
-              <div style={{
-                width: '100%', height: 10, background: 'var(--paper)',
-                borderRadius: 999, overflow: 'hidden', position: 'relative'
-              }}>
-                <div style={{
-                  width: `${importProgress.percent}%`,
-                  height: '100%',
-                  background: 'linear-gradient(90deg, #d4af37 0%, #f59e0b 50%, #eab308 100%)',
-                  borderRadius: 999,
-                  transition: 'width 0.35s ease-in-out',
-                }} />
-              </div>
-            </div>
-          )}
+          <div className="batch-table-controls">
+            <div className="field"><label htmlFor="batch-status">Status</label><select id="batch-status" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
+              <option value="ALL">All statuses</option><option value="PASSED">Passed</option><option value="IN_PROGRESS">In progress</option><option value="PENDING">Pending</option><option value="DROP">Drop</option>
+            </select></div>
+            <div className="field"><label htmlFor="batch-sort">Sort by</label><select id="batch-sort" value={sortOrder} onChange={e => setSortOrder(e.target.value)}>
+              <option value="name-asc">Name: A to Z</option><option value="name-desc">Name: Z to A</option><option value="id-asc">Student ID: ascending</option><option value="id-desc">Student ID: descending</option>
+            </select></div>
+          </div>
+          {downloadBusy && <p role="status" className="muted">{downloadBusy === 'template' ? 'Preparing template...' : 'Preparing grade sheet...'}</p>}
+          {importing && <div className="info-box import-processing" role="status" aria-live="polite" aria-busy="true"><strong>Processing</strong><p>Importing students and grades. Please keep this page open until the server returns the results.</p></div>}
 
           {/* Import result & retake feedback */}
           {importResult && !importing && (
             <div style={{ marginBottom: 20 }}>
               <div
+                role={importResult.error ? 'alert' : 'status'}
                 className={importResult.error ? 'info-box' : (importResult.studentsProcessed > 0 || importResult.gradesUpdated > 0 || importResult.retakesProcessed > 0) ? 'success-box' : 'info-box'}
                 style={{
                   marginBottom: importResult.retakesProcessed > 0 ? 10 : 0,
@@ -624,7 +430,7 @@ export default function BatchDetail({ params: paramsPromise }) {
                         }}>
                           <span className="badge badge-gold" style={{ fontSize: '0.7rem' }}>{rs.student_unique_id || 'ID'}</span>
                           <span>{rs.name}</span>
-                          <span style={{ fontSize: '0.72rem', color: 'var(--gold)', fontWeight: 700 }}>🔄 Retake</span>
+                          <span style={{ fontSize: '0.72rem', color: 'var(--gold)', fontWeight: 700 }}> Retake</span>
                         </Link>
                       ))}
                     </div>
@@ -695,7 +501,7 @@ export default function BatchDetail({ params: paramsPromise }) {
                     </div>
                   )}
                   <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-                    <StudentTable students={students} searchQuery={search} onNavigate={handleNavigationGuard} />
+                    <StudentTable emptyMessage="No students match the selected status." students={visibleStudents} searchQuery={search} onNavigate={handleNavigationGuard} />
                   </div>
                 </div>
               )}
@@ -717,7 +523,7 @@ export default function BatchDetail({ params: paramsPromise }) {
                     </div>
                   )}
                   <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-                    <MitStudentTable registrations={mitRegs} searchQuery={search} onNavigate={handleNavigationGuard} />
+                    <MitStudentTable emptyMessage="No students match the selected status." registrations={visibleMit} searchQuery={search} onNavigate={handleNavigationGuard} />
                   </div>
                 </div>
               )}
@@ -739,7 +545,7 @@ export default function BatchDetail({ params: paramsPromise }) {
                     </div>
                   )}
                   <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-                    <ProclaimersTable registrations={proclaimersRegs} searchQuery={search} onNavigate={handleNavigationGuard} />
+                    <ProclaimersTable emptyMessage="No students match the selected status." registrations={visibleProclaimers} searchQuery={search} onNavigate={handleNavigationGuard} />
                   </div>
                 </div>
               )}
@@ -760,7 +566,7 @@ export default function BatchDetail({ params: paramsPromise }) {
 }
 
 // Inline Proclaimers table matching StudentTable & MitStudentTable design
-function ProclaimersTable({ registrations = [], searchQuery = '', onNavigate }) {
+function ProclaimersTable({ registrations = [], searchQuery = '', onNavigate, emptyMessage }) {
   const q = searchQuery.toLowerCase().trim();
   const filtered = q
     ? registrations.filter((r) => {
@@ -778,7 +584,7 @@ function ProclaimersTable({ registrations = [], searchQuery = '', onNavigate }) 
   if (registrations.length === 0) {
     return (
       <div style={{ textAlign: 'center', padding: '40px 20px' }}>
-        <p className="muted">No Proclaimers registrations yet for this batch.</p>
+        <p className="muted">{emptyMessage || 'No Proclaimers registrations yet for this batch.'}</p>
       </div>
     );
   }

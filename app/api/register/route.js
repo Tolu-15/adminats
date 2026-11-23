@@ -1,6 +1,10 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../lib/supabaseAdmin';
 import { getClientIp, verifyTurnstileToken } from '../../../lib/turnstile';
+import { findDuplicateStudents } from '../../../lib/findDuplicateStudents';
+import { requireAdmin } from '../../../lib/requireAdmin';
+import { canWrite } from '../../../lib/roles';
+import { logAdminAction } from '../../../lib/auditLog';
 import { validateStudentData, sanitizeDate } from '../../../lib/validators';
 
 async function generateStudentUniqueId(batchId) {
@@ -24,7 +28,13 @@ export async function POST(request) {
     const body = await request.json();
     const { batch_id, surname, first_name, email, phone, gender } = body;
 
-    const turnstile = await verifyTurnstileToken(body.turnstileToken, getClientIp(request));
+    let admin = null;
+    if (request.headers.get('authorization')) {
+      admin = await requireAdmin(request);
+      if (!admin) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      if (!canWrite(admin)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+    const turnstile = admin ? { success: true } : await verifyTurnstileToken(body.turnstileToken, getClientIp(request));
     if (!turnstile.success) {
       return NextResponse.json({ error: turnstile.error }, { status: 403 });
     }
@@ -35,7 +45,7 @@ export async function POST(request) {
       return NextResponse.json({ error: validation.errors[0], errors: validation.errors }, { status: 400 });
     }
 
-    if (!body.date_of_birth) {
+    if (!body.date_of_birth || !sanitizeDate(body.date_of_birth)) {
       return NextResponse.json({ error: 'Date of birth is required.' }, { status: 400 });
     }
 
@@ -57,17 +67,32 @@ export async function POST(request) {
     }
 
     // Confirm batch exists and is active
-    const { data: batch, error: batchError } = await supabaseAdmin
+    let batchQuery = supabaseAdmin
       .from('batches')
       .select('*')
       .eq('id', batch_id)
-      .eq('is_active', true)
-      .maybeSingle();
+      .is('deleted_at', null);
+    if (!admin) batchQuery = batchQuery.eq('is_active', true);
+    const { data: batch, error: batchError } = await batchQuery.maybeSingle();
 
     if (batchError || !batch) {
       return NextResponse.json({ error: 'Invalid or inactive batch.' }, { status: 400 });
     }
 
+    if (admin && batch.programme_type && batch.programme_type !== 'MEMBERSHIP') {
+      return NextResponse.json({ error: 'Create new students in a Membership batch first.' }, { status: 400 });
+    }
+    async function recordCreation(student) {
+      if (admin) await logAdminAction({ action: 'STUDENT_CREATE', entityType: 'student', entityId: student.id, actor: admin, details: { batch_id, duplicate_warning_acknowledged: body.acknowledgeDuplicates === true } });
+    }
+    const duplicates = await findDuplicateStudents(body);
+    if (duplicates.length && (!admin || body.acknowledgeDuplicates !== true || duplicates.some(student => student.reasons.includes('student ID')))) {
+      return NextResponse.json({
+        error: admin ? 'Possible duplicate students found. Review the matching records before creating a separate student.' : 'A matching student record may already exist. Please contact ATS administration or use the existing-student registration option.',
+        code: 'DUPLICATE_WARNING',
+        ...(admin ? { duplicates: duplicates.map(({ id, student_unique_id, surname, first_name, reasons, deleted_at }) => ({ id, student_unique_id, surname, first_name, reasons, deleted_at })) } : {}),
+      }, { status: 409 });
+    }
     const student_unique_id = await generateStudentUniqueId(batch_id);
 
     // 1. Core student record
@@ -127,6 +152,7 @@ export async function POST(request) {
           .eq('id', rpcStudent.id);
         if (countryError) throw countryError;
       }
+      await recordCreation(rpcStudent);
       return NextResponse.json({ student: { ...rpcStudent, country_of_residence: studentRecord.country_of_residence } });
     }
 
@@ -148,16 +174,18 @@ export async function POST(request) {
       createdStudent = student;
 
       if (nextOfKinPayload) {
-        await supabaseAdmin.from('student_next_of_kin').insert({
+        const { error: kinError } = await supabaseAdmin.from('student_next_of_kin').insert({
           student_id: student.id,
           ...nextOfKinPayload,
         });
+        if (kinError) throw kinError;
       }
 
-      await supabaseAdmin.from('student_spiritual_profile').insert({
+      const { error: spiritualError } = await supabaseAdmin.from('student_spiritual_profile').insert({
         student_id: student.id,
         ...spiritualPayload,
       });
+      if (spiritualError) throw spiritualError;
 
       const { data: reg, error: regErr } = await supabaseAdmin
         .from('registrations')
@@ -171,10 +199,12 @@ export async function POST(request) {
 
       if (regErr) throw regErr;
 
-      await supabaseAdmin.from('membership_grades').insert({
+      const { error: gradeError } = await supabaseAdmin.from('membership_grades').insert({
         registration_id: reg.id,
       });
+      if (gradeError) throw gradeError;
 
+      await recordCreation(createdStudent);
       return NextResponse.json({ student: createdStudent });
     } catch (fallbackErr) {
       // Compensating rollback: delete partially created student to prevent orphaned rows

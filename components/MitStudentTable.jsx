@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { getImageUrl } from '../lib/getImageUrl';
 
-export default function MitStudentTable({ registrations = [], searchQuery = '', onNavigate }) {
+export default function MitStudentTable({ registrations = [], searchQuery = '', onNavigate, emptyMessage }) {
   const q = searchQuery.toLowerCase().trim();
 
   const filtered = q
@@ -20,7 +20,7 @@ export default function MitStudentTable({ registrations = [], searchQuery = '', 
   if (registrations.length === 0) {
     return (
       <div style={{ textAlign: 'center', padding: '40px 20px' }}>
-        <p className="muted">No MIT registrations yet for this batch.</p>
+        <p className="muted">{emptyMessage || 'No MIT registrations yet for this batch.'}</p>
       </div>
     );
   }

@@ -4,11 +4,13 @@ import { copyToClipboard } from '../../lib/copyToClipboard';
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { adminFetch } from '../../lib/adminFetch';
 import { supabase } from '../../lib/supabaseClient';
 import { useAdminGuard } from '../../lib/useAdminGuard';
 import Sidebar from '../../components/Sidebar';
 import StatCard from '../../components/StatCard';
 import CreateBatchForm from '../../components/CreateBatchForm';
+import Toast from '../../components/Toast';
 import QRCodeModal from '../../components/QRCodeModal';
 import { CleanGrowthGraph, CleanDemographicsGraph } from '../../components/AnalyticsCharts';
 import { sanitizeSearchTerm } from '../../lib/sanitizeSearch';
@@ -26,6 +28,10 @@ const PROG_STYLES = {
 
 export default function AdminDashboard() {
   const session = useAdminGuard();
+  const [notice, setNotice] = useState(null);
+  const [loadError, setLoadError] = useState('');
+  const [creatingBatch, setCreatingBatch] = useState(false);
+  const [downloadingTemplate, setDownloadingTemplate] = useState(false);
 
   const [batches, setBatches] = useState([]);
   const [stats, setStats] = useState(null);
@@ -82,7 +88,7 @@ export default function AdminDashboard() {
       const token = freshData?.session?.access_token || session?.access_token;
       if (!token) return;
 
-      const res = await fetch(`/api/admin/stats?batchId=${batchId}`, {
+      const res = await adminFetch(`/api/admin/stats?batchId=${batchId}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
@@ -92,9 +98,9 @@ export default function AdminDashboard() {
           return fetchStatsForBatch('ALL');
         }
         setStats(data);
-      }
+      } else { throw new Error(data.error || 'Unable to load statistics.'); }
     } catch (err) {
-      console.error('Failed to fetch batch stats:', err);
+      setNotice({ type: 'error', text: err.message || 'Unable to load statistics.' });
     } finally {
       setStatsLoading(false);
     }
@@ -102,26 +108,25 @@ export default function AdminDashboard() {
 
   async function loadData(customToken, targetAnalyticsBatch) {
     setLoading(true);
-    const { data: freshData } = await supabase.auth.getSession();
-    const token = customToken || freshData?.session?.access_token || session?.access_token;
-    if (!token) { setLoading(false); return; }
-
-    const batchToFetch = targetAnalyticsBatch !== undefined ? targetAnalyticsBatch : analyticsBatch;
-    const [batchRes, statsRes, auditRes] = await Promise.all([
-      fetch('/api/batches', { headers: { Authorization: `Bearer ${token}` } }),
-      fetch(`/api/admin/stats?batchId=${batchToFetch}`, { headers: { Authorization: `Bearer ${token}` } }),
-      fetch('/api/admin/audit?limit=3', { headers: { Authorization: `Bearer ${token}` } }),
-    ]);
-    const batchJson = await batchRes.json();
-    const statsJson = await statsRes.json();
-    const auditJson = await auditRes.json();
-    if (batchRes.ok) setBatches(batchJson.batches || []);
-    if (statsRes.ok) setStats(statsJson);
-    if (auditRes.ok) setRecentLogs(auditJson.logs || []);
-    setLoading(false);
+    setLoadError('');
+    try {
+      const batchToFetch = targetAnalyticsBatch !== undefined ? targetAnalyticsBatch : analyticsBatch;
+      const responses = await Promise.all([
+        adminFetch('/api/batches'),
+        adminFetch('/api/admin/stats?batchId=' + encodeURIComponent(batchToFetch)),
+        adminFetch('/api/admin/audit?limit=3'),
+      ]);
+      const payloads = await Promise.all(responses.map(response => response.json()));
+      for (let i = 0; i < responses.length; i++) {
+        if (!responses[i].ok) throw new Error(payloads[i].error || 'Unable to load dashboard data.');
+      }
+      setBatches(payloads[0].batches || []); setStats(payloads[1]); setRecentLogs(payloads[2].logs || []);
+    } catch (error) {
+      setLoadError(error.message || 'Unable to load dashboard data.');
+    } finally { setLoading(false); }
   }
 
-  useEffect(() => { if (session) loadData(session?.access_token); }, [session]);
+  useEffect(() => { if (session?.access_token) loadData(); }, [session?.access_token]);
 
   // Reset page to 1 when search changes
   useEffect(() => {
@@ -133,7 +138,7 @@ export default function AdminDashboard() {
   // silently return zero rows for a logged-in admin.
   useEffect(() => {
     const q = sanitizeSearchTerm(studentSearch);
-    if (!q) { setSearchResults([]); setSearchError(''); return; }
+    if (!session || !q) { setSearchResults([]); setSearchError(''); return; }
 
     const timer = setTimeout(async () => {
       setSearchingStudents(true);
@@ -141,7 +146,7 @@ export default function AdminDashboard() {
       try {
         const { data: freshData } = await supabase.auth.getSession();
         const token = freshData?.session?.access_token || session?.access_token;
-        const res = await fetch(`/api/students/search?q=${encodeURIComponent(q)}&limit=6`, {
+        const res = await adminFetch(`/api/students/search?q=${encodeURIComponent(q)}&limit=6`, {
           headers: { Authorization: `Bearer ${token}` },
         });
         const json = await res.json();
@@ -164,21 +169,21 @@ export default function AdminDashboard() {
 
   async function createBatch(e) {
     e.preventDefault();
+    if (creatingBatch) return;
     setError('');
     if (!batchName.trim()) { setError('Enter a batch name.'); return; }
-
-    const { data: freshData } = await supabase.auth.getSession();
-    const token = freshData?.session?.access_token || session?.access_token;
-
-    const res = await fetch('/api/batches', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ batch_name: batchName.trim(), programme_type: programmeType }),
-    });
-    const json = await res.json();
-    if (!res.ok) { setError(json.error || 'Failed to create batch.'); return; }
-    setBatchName(''); setProgrammeType('MEMBERSHIP'); setShowForm(false);
-    loadData(token);
+    setCreatingBatch(true);
+    try {
+      const { data } = await supabase.auth.getSession();
+      const token = data.session?.access_token || session?.access_token;
+      const res = await adminFetch('/api/batches', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ batch_name: batchName.trim(), programme_type: programmeType }) });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to create batch.');
+      setBatchName(''); setProgrammeType('MEMBERSHIP'); setShowForm(false);
+      setNotice({ type: 'success', text: 'Batch created.' });
+      await loadData(token);
+    } catch (error) { setError(error.message || 'Failed to create batch.'); }
+    finally { setCreatingBatch(false); }
   }
 
   function getRegPath(batch) {
@@ -190,51 +195,45 @@ export default function AdminDashboard() {
     const success = await copyToClipboard(fullUrl);
     if (success) {
       setCopied(batch.id);
+      setNotice({ type: 'success', text: 'Registration link copied.' });
       setTimeout(() => setCopied(null), 2000);
     } else {
-      alert(`Link: ${fullUrl}`);
+      setNotice({ type: 'error', text: 'Unable to copy automatically. Registration link: ' + fullUrl });
     }
   }
 
   async function downloadTemplate() {
-    const { data: freshData } = await supabase.auth.getSession();
-    const token = freshData?.session?.access_token || session?.access_token;
-
-    const res = await fetch('/api/admin/template', {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (!res.ok) { alert('Template download failed.'); return; }
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'ATS_Master_Migration_Template.xlsx';
-    a.click();
-    URL.revokeObjectURL(url);
+    if (downloadingTemplate) return;
+    setDownloadingTemplate(true);
+    try {
+      const { data } = await supabase.auth.getSession();
+      const token = data.session?.access_token || session?.access_token;
+      const res = await adminFetch('/api/admin/template', { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) throw new Error('Template download failed. Please try again.');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = 'ATS_Master_Migration_Template.xlsx'; a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setNotice({ type: 'success', text: 'Template download started.' });
+    } catch (error) { setNotice({ type: 'error', text: error.message || 'Download failed.' }); }
+    finally { setDownloadingTemplate(false); }
   }
 
   async function deleteBatch(batch) {
+    if (deletingBatch) return;
     if (!confirm(`Delete "${batch.batch_name}"? This cannot be undone.`)) return;
     setDeletingBatch(batch.id);
-
-    const { data: freshData } = await supabase.auth.getSession();
-    const token = freshData?.session?.access_token || session?.access_token;
-
-    const res = await fetch(`/api/batches/${batch.id}`, {
-      method: 'DELETE',
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    setDeletingBatch(null);
-    if (res.ok) {
+    try {
+      const { data } = await supabase.auth.getSession();
+      const token = data.session?.access_token || session?.access_token;
+      const res = await adminFetch(`/api/batches/${batch.id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) { const json = await res.json(); throw new Error(json.error || 'Delete failed.'); }
       const nextBatch = analyticsBatch === batch.id ? 'ALL' : analyticsBatch;
-      if (analyticsBatch === batch.id) {
-        setAnalyticsBatch('ALL');
-      }
-      loadData(token, nextBatch);
-    } else {
-      const json = await res.json();
-      alert(`Delete failed: ${json.error}`);
-    }
+      if (analyticsBatch === batch.id) setAnalyticsBatch('ALL');
+      setNotice({ type: 'success', text: 'Batch moved to trash.' });
+      await loadData(token, nextBatch);
+    } catch (error) { setNotice({ type: 'error', text: error.message || 'Delete failed.' }); }
+    finally { setDeletingBatch(null); }
   }
 
   function startRename(batch) {
@@ -253,23 +252,19 @@ export default function AdminDashboard() {
     const nextName = renameValue.trim();
     if (!nextName) { setRenameError('Batch name cannot be empty.'); return; }
 
-    setRenameSaving(true);
-    setRenameError('');
-    const { data: freshData } = await supabase.auth.getSession();
-    const token = freshData?.session?.access_token || session?.access_token;
-
-    const res = await fetch(`/api/batches/${batchId}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ batch_name: nextName }),
-    });
-    const json = await res.json();
-    setRenameSaving(false);
-    if (!res.ok) { setRenameError(json.error || 'Failed to rename batch.'); return; }
-
-    setRenamingBatchId(null);
-    setRenameValue('');
-    loadData(token);
+    if (renameSaving) return;
+    setRenameSaving(true); setRenameError('');
+    try {
+      const { data } = await supabase.auth.getSession();
+      const token = data.session?.access_token || session?.access_token;
+      const res = await adminFetch(`/api/batches/${batchId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ batch_name: nextName }) });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to rename batch.');
+      setRenamingBatchId(null); setRenameValue('');
+      setNotice({ type: 'success', text: 'Batch renamed.' });
+      await loadData(token);
+    } catch (error) { setRenameError(error.message || 'Failed to rename batch.'); }
+    finally { setRenameSaving(false); }
   }
 
   if (session === undefined) {
@@ -296,13 +291,15 @@ export default function AdminDashboard() {
 
   // Pagination calculation (3 items per page)
   const totalPages = Math.ceil(filteredBatches.length / itemsPerPage) || 1;
+  const visiblePage = Math.min(Math.max(currentPage, 1), totalPages);
   const paginatedBatches = filteredBatches.slice(
-    (currentPage - 1) * itemsPerPage,
-    currentPage * itemsPerPage
+    (visiblePage - 1) * itemsPerPage,
+    visiblePage * itemsPerPage
   );
 
   return (
     <div className="admin-shell">
+      {notice && <Toast message={notice.text} type={notice.type} onClose={() => setNotice(null)} />}
       <Sidebar />
       <div className="admin-main">
 
@@ -371,11 +368,11 @@ export default function AdminDashboard() {
           <div className="admin-topbar-right" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             {session?.isViewer ? (
               <span className="badge" style={{ background: 'rgba(59,130,246,0.12)', color: '#1d4ed8', border: '1px solid rgba(59,130,246,0.3)', padding: '4px 10px', fontSize: '0.75rem' }}>
-                👁️ Viewer Account (Read Only)
+                 Viewer Account (Read Only)
               </span>
             ) : (
               <span className="badge badge-gold" style={{ padding: '4px 10px', fontSize: '0.75rem' }}>
-                ⚡ Super Admin
+                 Super Admin
               </span>
             )}
             <span className="muted text-sm">{session?.user?.email}</span>
@@ -383,6 +380,7 @@ export default function AdminDashboard() {
         </div>
 
         <div className="admin-content">
+          {loadError && <div className="error-box" role="alert"><p>{loadError} Counts have not been refreshed.</p><button className="btn btn-outline btn-sm" onClick={() => loadData()} disabled={loading}>Retry loading dashboard</button></div>}
 
           {/* ── GRAPH ANALYTICS DASHBOARD ── */}
           {stats && (
@@ -455,7 +453,7 @@ export default function AdminDashboard() {
                       outline: 'none',
                     }}
                   >
-                    <option value="ALL">🌐 All Batches (Overall)</option>
+                    <option value="ALL"> All Batches (Overall)</option>
                     {(stats.availableBatches || batches.map((b) => ({ id: b.id, name: b.batch_name, code: b.batch_code, programme: b.programme_type }))).map((b) => (
                       <option key={b.id} value={b.id} title={`${b.name} (${b.programme || 'MEMBERSHIP'})`}>
                         {truncateLabel(b.name, 28)} ({b.programme || 'MEMBERSHIP'})
@@ -500,7 +498,7 @@ export default function AdminDashboard() {
                   icon="fa-star"
                   label="First Timers"
                   value={stats.firstTimerCount}
-                  sub={`${stats.firstTimerPercent}% of Membership Enrolment`}
+                  sub={`${stats.firstTimerPercent}% of students`}
                   colorClass="gold"
                 />
                 {stats.selectedBatch ? (
@@ -529,7 +527,7 @@ export default function AdminDashboard() {
                 <div className="card" style={{ padding: 22 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
                     <h3 style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--navy)', margin: 0 }}>
-                      {stats.selectedBatch ? '📋 Programme Breakdown' : '📈 Batch Enrolment Trends'}
+                      {stats.selectedBatch ? ' Programme Breakdown' : ' Batch Enrolment Trends'}
                     </h3>
                     <span className="badge badge-gold" style={{ fontSize: '0.72rem' }}>
                       {stats.selectedBatch ? 'Enrolment Scope' : 'Comparative'}
@@ -543,7 +541,7 @@ export default function AdminDashboard() {
                 <div className="card" style={{ padding: 22 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
                     <h3 style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--navy)', margin: 0 }}>
-                      📊 Student Demographics
+                       Student Demographics
                     </h3>
                     <span className="badge" style={{ fontSize: '0.72rem', background: 'rgba(59,130,246,0.1)', color: '#2563eb' }}>
                       {stats.selectedBatch ? stats.selectedBatch.code : 'Overview'}
@@ -554,7 +552,7 @@ export default function AdminDashboard() {
                     maleCount={stats.maleCount}
                     femaleCount={stats.femaleCount}
                     firstTimerCount={stats.firstTimerCount}
-                    membershipTotal={stats.membershipTotal}
+                    totalStudents={stats.totalStudents}
                   />
                 </div>
 
@@ -680,11 +678,11 @@ export default function AdminDashboard() {
               <p className="muted text-sm" style={{ marginTop: 2 }}>Search and manage all batches</p>
             </div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              <button className="btn btn-outline" onClick={downloadTemplate} title="Download master migration template Excel sheet">
-                <i className="fa-solid fa-file-excel"></i> Migration Template
+              <button className="btn btn-outline" onClick={downloadTemplate} disabled={downloadingTemplate} title="Download master migration template Excel sheet">
+                <i className="fa-solid fa-file-excel"></i> {downloadingTemplate ? 'Downloading...' : 'Migration Template'}
               </button>
               {!session?.isViewer && (
-                <button className="btn btn-gold" onClick={() => setShowForm((s) => !s)}>
+                <button className="btn btn-gold" disabled={creatingBatch} onClick={() => setShowForm((s) => !s)}>
                   {showForm ? (
                     <>
                       <i className="fa-solid fa-xmark"></i> Cancel
@@ -705,7 +703,7 @@ export default function AdminDashboard() {
                 batchCode={batchCode} setBatchCode={setBatchCode}
                 batchName={batchName} setBatchName={setBatchName}
                 programmeType={programmeType} setProgrammeType={setProgrammeType}
-                onSubmit={createBatch} error={error}
+                onSubmit={createBatch} error={error} saving={creatingBatch}
               />
             </div>
           )}
@@ -741,7 +739,7 @@ export default function AdminDashboard() {
               <p className="muted">
                 {batchSearch
                   ? 'No batches match your search.'
-                  : 'No batches yet. Create your first batch to get started.'}
+                  : loadError ? 'Batch records are unavailable. Retry loading the dashboard.' : 'No batches yet. Create your first batch to get started.'}
               </p>
             </div>
           ) : (
@@ -774,7 +772,7 @@ export default function AdminDashboard() {
                                 className="btn btn-primary btn-sm"
                                 onClick={() => saveRename(b.id)}
                                 disabled={renameSaving}
-                                title="Save name"
+                                title="Save name" aria-label="Save batch name"
                                 style={{ padding: '6px 10px' }}
                               >
                                 {renameSaving ? <i className="fa-solid fa-spinner fa-spin" /> : <i className="fa-solid fa-check" />}
@@ -783,7 +781,7 @@ export default function AdminDashboard() {
                                 className="btn btn-outline btn-sm"
                                 onClick={cancelRename}
                                 disabled={renameSaving}
-                                title="Cancel"
+                                title="Cancel" aria-label="Cancel rename"
                                 style={{ padding: '6px 10px' }}
                               >
                                 <i className="fa-solid fa-xmark" />
@@ -810,7 +808,7 @@ export default function AdminDashboard() {
                               {!session?.isViewer && (
                                 <button
                                   onClick={() => startRename(b)}
-                                  title="Rename batch"
+                                  title="Rename batch" aria-label="Rename batch"
                                   style={{
                                     background: 'transparent', border: 'none', color: 'var(--muted)',
                                     cursor: 'pointer', fontSize: '0.78rem', flexShrink: 0, padding: 4,
@@ -834,8 +832,8 @@ export default function AdminDashboard() {
                         {!session?.isViewer && renamingBatchId !== b.id && (
                           <button
                             onClick={() => deleteBatch(b)}
-                            disabled={deletingBatch === b.id}
-                            title="Delete batch"
+                            disabled={!!deletingBatch}
+                            title="Delete batch" aria-label="Delete batch"
                             style={{
                               background: '#fee2e2', color: '#dc2626',
                               border: '1px solid #fca5a5', borderRadius: 8,
@@ -900,7 +898,7 @@ export default function AdminDashboard() {
               {/* ── PAGINATION CONTROLS (3 items per page) ── */}
               {totalPages > 1 && (
                 <div style={{
-                  display: 'flex', alignItems: 'center', justifyContent: 'between',
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap',
                   marginTop: 24, background: '#fff', padding: '12px 18px',
                   borderRadius: 12, border: '1px solid var(--line)', gap: 12
                 }}>
@@ -910,18 +908,18 @@ export default function AdminDashboard() {
                   <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
                     <button
                       className="btn btn-outline btn-sm"
-                      disabled={currentPage === 1}
-                      onClick={() => setCurrentPage((p) => Math.max(p - 1, 1))}
+                      disabled={visiblePage === 1}
+                      onClick={() => setCurrentPage(Math.max(visiblePage - 1, 1))}
                     >
                       <i className="fa-solid fa-chevron-left"></i> Previous
                     </button>
                     <span style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--navy)', padding: '0 8px' }}>
-                      Page {currentPage} of {totalPages}
+                      Page {visiblePage} of {totalPages}
                     </span>
                     <button
                       className="btn btn-outline btn-sm"
-                      disabled={currentPage === totalPages}
-                      onClick={() => setCurrentPage((p) => Math.min(p + 1, totalPages))}
+                      disabled={visiblePage === totalPages}
+                      onClick={() => setCurrentPage(Math.min(visiblePage + 1, totalPages))}
                     >
                       Next <i className="fa-solid fa-chevron-right"></i>
                     </button>

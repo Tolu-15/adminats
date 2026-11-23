@@ -76,7 +76,7 @@ export default function SearchStudents() {
           <div style={{ maxWidth: 640, margin: '0 auto' }}>
             {/* Search hero */}
             <div style={{ textAlign: 'center', marginBottom: 32 }}>
-              <div style={{ fontSize: '2.5rem', marginBottom: 8 }}>🔍</div>
+              <div style={{ fontSize: '2.5rem', marginBottom: 8 }}></div>
               <h1 style={{ fontSize: '1.5rem', marginBottom: 8, color: 'var(--navy)' }}>Find a Student</h1>
               <p className="muted text-sm">Search by name, student ID, or email across all batches</p>
             </div>
@@ -104,14 +104,14 @@ export default function SearchStudents() {
 
             {!loading && searchError && (
               <div className="card" style={{ textAlign: 'center', padding: 40 }}>
-                <div style={{ fontSize: '2rem', marginBottom: 10, color: '#dc2626' }}>⚠️</div>
+                <div style={{ fontSize: '2rem', marginBottom: 10, color: '#dc2626' }}></div>
                 <p className="muted">{searchError}</p>
               </div>
             )}
 
             {!loading && !searchError && searched && results.length === 0 && (
               <div className="card" style={{ textAlign: 'center', padding: 40 }}>
-                <div style={{ fontSize: '2rem', marginBottom: 10 }}>🫤</div>
+                <div style={{ fontSize: '2rem', marginBottom: 10 }}></div>
                 <p className="muted">No students found matching "<strong>{query}</strong>"</p>
               </div>
             )}

@@ -4,7 +4,7 @@ import { requireAdmin } from '../../../../lib/requireAdmin';
 import {
   isActiveBatchStudent,
   isActiveRegistration,
-  registrationStudentKey,
+  buildBatchCounts,
 } from '../../../../lib/activeAnalytics';
 
 import { fetchAllPaginated } from '../../../../lib/supabasePagination';
@@ -121,6 +121,7 @@ export async function GET(request) {
         supabaseAdmin
           .from('students')
           .select('id, batch_id, gender, created_at, deleted_at')
+          .order('id')
           .in('batch_id', targetBatchIds)
           .is('deleted_at', null)
       ),
@@ -134,15 +135,13 @@ export async function GET(request) {
             )
           `)
           .in('batch_id', targetBatchIds)
+          .order('id')
       ),
-      supabaseAdmin
+      fetchAllPaginated(() => supabaseAdmin
         .from('student_spiritual_profile')
-        .select('student_id, is_first_timer'),
+        .select('student_id, is_first_timer').order('student_id')),
     ]);
 
-    if (spiritualRes.error) {
-      console.error('Error fetching spiritual profile for stats:', spiritualRes.error);
-    }
 
     // STRICT FILTER: Exclude any registration where the student is in trash,
     // where the registration's batch is in trash, or where the student's home batch is in trash
@@ -151,14 +150,8 @@ export async function GET(request) {
     // Valid direct students (not in trash and belonging to non-trashed batches)
     const validDirectStudents = (rawStudents || []).filter((s) => isActiveBatchStudent(s, activeBatchMap));
 
-    // Direct students not already captured via registrations in their batch
-    const registeredBatchStudentKeys = new Set(
-      validRegs.map(registrationStudentKey).filter(Boolean)
-    );
-    const missingDirectStudents = validDirectStudents.filter(
-      (s) => !registeredBatchStudentKeys.has(`${s.batch_id}_${s.id}`)
-    );
-
+    // Direct Membership profiles and later-stage registrations can refer to the same person.
+    const countsByBatch = buildBatchCounts(dashboardBatches, validRegs, validDirectStudents);
     // Unique active students for accurate demographics (gender, first-timers)
     const activeStudentMap = new Map();
     validRegs.forEach((r) => {
@@ -167,7 +160,7 @@ export async function GET(request) {
         activeStudentMap.set(s.id, s);
       }
     });
-    missingDirectStudents.forEach((s) => {
+    validDirectStudents.forEach((s) => {
       if (!activeStudentMap.has(s.id)) {
         activeStudentMap.set(s.id, s);
       }
@@ -175,16 +168,16 @@ export async function GET(request) {
 
     // Map spiritual profile first timers only for verified active non-trashed students
     const spiritualFirstTimers = new Set(
-      (spiritualRes.data || [])
+      (spiritualRes || [])
         .filter((sp) => sp.is_first_timer && activeStudentMap.has(sp.student_id))
         .map((sp) => sp.student_id)
     );
 
     // Totals by programme (strictly non-trashed)
-    const membershipRegsCount = validRegs.filter((r) => r.stage === 'membership').length;
-    const membershipTotal = membershipRegsCount + missingDirectStudents.length;
-    const mitTotal = validRegs.filter((r) => r.stage === 'mit').length;
-    const proclaimersTotal = validRegs.filter((r) => r.stage === 'proclaimers').length;
+    const targetCounts = targetBatchIds.map(id => countsByBatch.get(id));
+    const membershipTotal = targetCounts.reduce((sum, counts) => sum + counts.membership, 0);
+    const mitTotal = targetCounts.reduce((sum, counts) => sum + counts.mit, 0);
+    const proclaimersTotal = targetCounts.reduce((sum, counts) => sum + counts.proclaimers, 0);
     // Total distinct active students enrolled
     const totalStudents = activeStudentMap.size;
 
@@ -209,23 +202,20 @@ export async function GET(request) {
       const isFT = s.is_first_timer === 'Yes' || s.is_first_timer === true || s.is_first_timer === 'true' || spiritualFirstTimers.has(s.id);
       if (isFT) firstTimerCount += 1;
     });
-    const regularCount = Math.max(0, membershipTotal - firstTimerCount);
-    const firstTimerPercent = membershipTotal > 0 ? Math.round((firstTimerCount / membershipTotal) * 100) : 0;
+    const regularCount = Math.max(0, totalStudents - firstTimerCount);
+    const firstTimerPercent = totalStudents > 0 ? Math.round((firstTimerCount / totalStudents) * 100) : 0;
 
     // Batch distribution for growth chart (only active non-trashed batches)
     const batchesToDistribute = isSingleBatch ? [selectedBatch] : dashboardBatches.slice(0, 10);
     const batchDistribution = batchesToDistribute.map((b) => {
-      const bRegs = validRegs.filter((r) => r.batch_id === b.id);
-      const bDirect = missingDirectStudents.filter((s) => s.batch_id === b.id);
-      const mem = bRegs.filter((r) => r.stage === 'membership').length + bDirect.length;
-      const mit = bRegs.filter((r) => r.stage === 'mit').length;
-      const proc = bRegs.filter((r) => r.stage === 'proclaimers').length;
+      const counts = countsByBatch.get(b.id);
+      const { membership: mem, mit, proclaimers: proc } = counts;
 
       return {
         id: b.id,
         code: b.batch_code,
         name: b.batch_name,
-        total: mem + mit + proc,
+        total: counts.total,
         mem,
         mit,
         proc,

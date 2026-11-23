@@ -93,7 +93,7 @@ export default function ProclaimersGradeEditForm({ registrationId, initialGrades
     <div className="card">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
         <div>
-          <h2 style={{ fontSize: '1rem', margin: 0, color: 'var(--navy)' }}>📣 Proclaimers Class Grades</h2>
+          <h2 style={{ fontSize: '1rem', margin: 0, color: 'var(--navy)' }}> Proclaimers Class Grades</h2>
           <p className="muted text-sm" style={{ marginTop: 2 }}>Edit Proclaimers scores and assessment details</p>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -107,11 +107,11 @@ export default function ProclaimersGradeEditForm({ registrationId, initialGrades
               <>
                 <button className="btn btn-outline btn-sm" onClick={cancelEditing}>Cancel</button>
                 <button className="btn btn-primary btn-sm" onClick={save} disabled={saving}>
-                  {saving ? 'Saving…' : '💾 Save'}
+                  {saving ? 'Saving…' : ' Save'}
                 </button>
               </>
             ) : (
-              <button className="btn btn-outline btn-sm" onClick={startEditing}>✏️ Edit Proclaimers Grades</button>
+              <button className="btn btn-outline btn-sm" onClick={startEditing}> Edit Proclaimers Grades</button>
             )
           )}
         </div>

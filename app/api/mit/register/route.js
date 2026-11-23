@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { startProgrammeAttempt } from '../../../../lib/retakeHistory';
 import { supabaseAdmin } from '../../../../lib/supabaseAdmin';
 import {
   dateOfBirthMatches,
@@ -89,28 +90,8 @@ export async function POST(request) {
     return (g?.status || 'NOT GRADED').toUpperCase();
   });
 
-  // 6. Create MIT registration in registrations table (upsert/insert if retake allows re-enrollment)
-  const { data: reg, error: regErr } = await supabaseAdmin
-    .from('registrations')
-    .upsert({
-      student_id: membership_student_id,
-      batch_id,
-      stage: 'mit',
-      department: department?.trim() || null,
-    }, { onConflict: 'student_id,stage' })
-    .select()
-    .single();
-
-  if (regErr) return NextResponse.json({ error: regErr.message }, { status: 500 });
-
-  // 7. Create/reset mit_grades record
-  await supabaseAdmin.from('mit_grades').upsert({
-    registration_id: reg.id,
-    first_timer_date: student.church_join_date || null,
-    comments: isRetake
-      ? `RETAKE — Previously attempted MIT. Prior status(es): ${prevStatuses.join(', ')}`
-      : null,
-  }, { onConflict: 'registration_id' });
+  const { data: registrationId, error: attemptError } = await startProgrammeAttempt({ studentId: membership_student_id, batchId: batch_id, stage: 'mit', previous: priorMit?.[0], department: department?.trim() || null });
+  if (attemptError) return NextResponse.json({ error: attemptError.message }, { status: attemptError.code === 'MIGRATION_REQUIRED' ? 503 : 409 });
 
   return NextResponse.json({
     success: true,
@@ -118,6 +99,6 @@ export async function POST(request) {
     message: isRetake
       ? `${student.first_name} ${student.surname} has been re-enrolled in ${batch.batch_name} for a MIT retake.`
       : `${student.first_name} ${student.surname} has been registered for ${batch.batch_name}.`,
-    registration_id: reg.id,
+    registration_id: registrationId,
   });
 }

@@ -78,7 +78,7 @@ export async function PATCH(request, { params }) {
     'class', 'trainer', 'midterm_test', 'interactions', 'bible_study',
     'assignment', 'attendance', 'cth', 'community_service', 'evangelism',
     'presentation', 'exam', 'final_exam', 'final_grades', 'status', 'comments',
-    'department', 'department_confirmation', 'first_timer', 'first_timer_date',
+    'department_confirmation', 'first_timer', 'first_timer_date',
   ];
 
   const payload = {};

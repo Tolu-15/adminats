@@ -75,8 +75,7 @@ export async function PATCH(request, { params }) {
   const allowed = [
     'class', 'trainer', 'cih', 'attendance', 'assessment', 'presentation',
     'project', 'seminar_attendance', 'final_grades', 'mountain_of_influence',
-    'department', 'first_timer', 'first_timer_date', 'status', 'comments',
-  ];
+   'first_timer', 'first_timer_date', 'status', 'comments',  ];
 
   const payload = {};
   for (const key of allowed) {
